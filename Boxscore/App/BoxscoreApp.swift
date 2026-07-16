@@ -9,9 +9,13 @@ import SwiftUI
 
 @main
 struct BoxscoreApp: App {
+    @StateObject private var authService = AuthService()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environmentObject(authService)
+                .task { await authService.start() }
         }
     }
 }
