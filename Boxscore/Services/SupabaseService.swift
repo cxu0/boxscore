@@ -5,8 +5,8 @@ import Supabase
 /// found under Project Settings → API. The anon key is safe to ship in a
 /// client app — Row Level Security on the database is what enforces access.
 enum SupabaseConfig {
-    static let url = URL(string: "https://YOUR_PROJECT_REF.supabase.co")!
-    static let anonKey = "YOUR_SUPABASE_ANON_KEY"
+    static let url = URL(string: "https://nwkgbfdcbilxriyfmeuj.supabase.co")!
+    static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53a2diZmRjYmlseHJpeWZtZXVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxNTg5NzQsImV4cCI6MjA5OTczNDk3NH0.k0P-4TIVj5GyFlfTMiG4U7dy1wCAcDVDdjq77-KnvwM"
 }
 
 enum SupabaseService {
