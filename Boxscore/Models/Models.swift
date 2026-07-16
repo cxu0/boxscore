@@ -89,6 +89,30 @@ struct BoxScoreStat: Codable, Identifiable, Equatable {
     }
 }
 
+/// A team a player belongs to, with season/league names, decoded from a
+/// PostgREST embedded-resource query over roster_spots' foreign keys.
+struct PlayerTeam: Codable, Identifiable, Equatable {
+    let id: UUID
+    let displayName: String
+    let teams: TeamRef
+
+    struct TeamRef: Codable, Equatable {
+        let name: String
+        let seasons: SeasonRef
+    }
+    struct SeasonRef: Codable, Equatable {
+        let name: String
+        let leagues: LeagueRef
+    }
+    struct LeagueRef: Codable, Equatable {
+        let name: String
+    }
+
+    var teamName: String { teams.name }
+    var seasonName: String { teams.seasons.name }
+    var leagueName: String { teams.seasons.leagues.name }
+}
+
 /// Mirrors the `player_season_stats` view — one row per player/league/season.
 struct PlayerSeasonStats: Codable, Identifiable, Equatable {
     var id: String { "\(leagueId)-\(seasonId)" }

@@ -54,6 +54,18 @@ final class RosterService: ObservableObject {
             .value
     }
 
+    /// The teams a player has claimed, with their season/league names pulled in
+    /// via PostgREST's embedded-resource selection over the foreign keys. Used
+    /// to show team membership on the profile even before any stats exist.
+    func fetchPlayerTeams(playerId: UUID) async throws -> [PlayerTeam] {
+        try await client
+            .from("roster_spots")
+            .select("id, display_name, teams(name, seasons(name, leagues(name)))")
+            .eq("player_id", value: playerId)
+            .execute()
+            .value
+    }
+
     private static func generateInviteCode(length: Int = 6) -> String {
         let alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no O/0/I/1 ambiguity
         return String((0..<length).map { _ in alphabet.randomElement()! })

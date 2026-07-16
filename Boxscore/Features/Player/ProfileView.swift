@@ -4,7 +4,9 @@ struct ProfileView: View {
     let profile: Profile
 
     @StateObject private var statService = StatService()
+    @StateObject private var rosterService = RosterService()
     @State private var seasonStats: [PlayerSeasonStats] = []
+    @State private var teams: [PlayerTeam] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -18,21 +20,36 @@ struct ProfileView: View {
         Group {
             if isLoading {
                 LoadingView()
-            } else if seasonStats.isEmpty {
+            } else if teams.isEmpty && seasonStats.isEmpty {
                 EmptyStateView(
                     systemImage: "person.crop.circle.badge.questionmark",
-                    title: "No Stats Yet",
-                    message: "Join a team with an invite code to start tracking your career stats."
+                    title: "No Teams Yet",
+                    message: "Tap + and enter an invite code from your commissioner to join a team."
                 )
             } else {
                 List {
-                    Section("Career") {
-                        CareerTotalsCard(totals: seasonStats.careerTotals)
+                    if !teams.isEmpty {
+                        Section("My Teams") {
+                            ForEach(teams) { team in
+                                TeamMembershipRow(team: team)
+                            }
+                        }
                     }
-                    ForEach(byLeague, id: \.league) { group in
-                        Section(group.league) {
-                            ForEach(group.seasons) { season in
-                                SeasonStatRow(season: season)
+                    if seasonStats.isEmpty {
+                        Section("Career") {
+                            Text("No games played yet. Your stats will appear here once a box score is entered.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Section("Career") {
+                            CareerTotalsCard(totals: seasonStats.careerTotals)
+                        }
+                        ForEach(byLeague, id: \.league) { group in
+                            Section(group.league) {
+                                ForEach(group.seasons) { season in
+                                    SeasonStatRow(season: season)
+                                }
                             }
                         }
                     }
@@ -47,11 +64,27 @@ struct ProfileView: View {
     private func load() async {
         isLoading = true
         do {
-            seasonStats = try await statService.fetchSeasonStats(playerId: profile.id)
+            async let stats = statService.fetchSeasonStats(playerId: profile.id)
+            async let joined = rosterService.fetchPlayerTeams(playerId: profile.id)
+            seasonStats = try await stats
+            teams = try await joined
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+}
+
+private struct TeamMembershipRow: View {
+    let team: PlayerTeam
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(team.teamName).font(.headline)
+            Text("\(team.leagueName) · \(team.seasonName)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
