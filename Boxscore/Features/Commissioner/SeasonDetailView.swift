@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SeasonDetailView: View {
     let season: Season
+    let isOwner: Bool
 
     @StateObject private var leagueService = LeagueService()
     @State private var teams: [Team] = []
@@ -19,13 +20,15 @@ struct SeasonDetailView: View {
                 }
                 ForEach(teams) { team in
                     NavigationLink(team.name) {
-                        TeamDetailView(team: team)
+                        TeamDetailView(team: team, isOwner: isOwner)
                     }
                 }
-                Button {
-                    isShowingNewTeam = true
-                } label: {
-                    Label("Add Team", systemImage: "plus")
+                if isOwner {
+                    Button {
+                        isShowingNewTeam = true
+                    } label: {
+                        Label("Add Team", systemImage: "plus")
+                    }
                 }
             }
 
@@ -35,17 +38,19 @@ struct SeasonDetailView: View {
                 }
                 ForEach(games) { game in
                     NavigationLink {
-                        GameDetailView(game: game, teams: teams)
+                        GameDetailView(game: game, teams: teams, isOwner: isOwner)
                     } label: {
                         GameRow(game: game, teams: teams)
                     }
                 }
-                Button {
-                    isShowingNewGame = true
-                } label: {
-                    Label("Schedule Game", systemImage: "plus")
+                if isOwner {
+                    Button {
+                        isShowingNewGame = true
+                    } label: {
+                        Label("Schedule Game", systemImage: "plus")
+                    }
+                    .disabled(teams.count < 2)
                 }
-                .disabled(teams.count < 2)
             }
 
             if let errorMessage {

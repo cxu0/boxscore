@@ -16,33 +16,68 @@ final class RosterService: ObservableObject {
             .value
     }
 
-    /// Adds a placeholder roster spot with a fresh invite code the commissioner
-    /// can hand to the real player, who redeems it via `claimInvite`.
+    /// Adds a placeholder roster spot for a player who isn't on the app yet.
+    /// Stats can accrue against it immediately; the real player links their
+    /// account to it later via `requestClaim`.
     func addRosterSpot(teamId: UUID, displayName: String) async throws -> RosterSpot {
-        let inviteCode = Self.generateInviteCode()
-        return try await client
+        try await client
             .from("roster_spots")
-            .insert([
-                "team_id": teamId.uuidString,
-                "display_name": displayName,
-                "invite_code": inviteCode
-            ])
+            .insert(["team_id": teamId.uuidString, "display_name": displayName])
             .select()
             .single()
             .execute()
             .value
     }
 
-    /// Links the signed-in player's account to the roster spot matching
-    /// `inviteCode` via the `claim_invite` RPC, which atomically checks the
-    /// code is unclaimed. Every box score already recorded against that spot
-    /// becomes part of the player's aggregated stats immediately.
-    func claimInvite(code: String) async throws -> RosterSpot {
+    /// Self-serve join via the league's one shareable code — the signed-in
+    /// player adds themselves directly to a roster spot, no organizer
+    /// involvement or approval needed.
+    func joinLeagueSelf(joinCode: String, teamId: UUID, displayName: String) async throws -> RosterSpot {
         try await client
-            .rpc("claim_invite", params: ["p_invite_code": code])
+            .rpc("join_league_self", params: [
+                "p_join_code": joinCode,
+                "p_team_id": teamId.uuidString,
+                "p_display_name": displayName
+            ])
             .single()
             .execute()
             .value
+    }
+
+    /// A player asking to take over a placeholder roster spot the organizer
+    /// already entered stats against. Pending until the organizer approves.
+    func requestClaim(rosterSpotId: UUID) async throws -> ClaimRequest {
+        try await client
+            .rpc("request_claim", params: ["p_roster_spot_id": rosterSpotId.uuidString])
+            .single()
+            .execute()
+            .value
+    }
+
+    /// Pending claim requests for every placeholder on this team, with the
+    /// requester's name embedded — shown to the organizer for approval.
+    func fetchPendingClaimRequests(teamId: UUID) async throws -> [ClaimRequest] {
+        try await client
+            .from("claim_requests")
+            .select("*, profiles(display_name), roster_spots!inner(team_id)")
+            .eq("roster_spots.team_id", value: teamId)
+            .eq("status", value: ClaimRequestStatus.pending.rawValue)
+            .execute()
+            .value
+    }
+
+    func approveClaimRequest(id: UUID) async throws -> RosterSpot {
+        try await client
+            .rpc("approve_claim_request", params: ["p_request_id": id.uuidString])
+            .single()
+            .execute()
+            .value
+    }
+
+    func denyClaimRequest(id: UUID) async throws {
+        try await client
+            .rpc("deny_claim_request", params: ["p_request_id": id.uuidString])
+            .execute()
     }
 
     func fetchLinkedRosterSpots(playerId: UUID) async throws -> [RosterSpot] {
@@ -64,10 +99,5 @@ final class RosterService: ObservableObject {
             .eq("player_id", value: playerId)
             .execute()
             .value
-    }
-
-    private static func generateInviteCode(length: Int = 6) -> String {
-        let alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no O/0/I/1 ambiguity
-        return String((0..<length).map { _ in alphabet.randomElement()! })
     }
 }

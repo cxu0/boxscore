@@ -3,11 +3,14 @@ import SwiftUI
 struct LeagueDetailView: View {
     let league: League
 
+    @EnvironmentObject private var auth: AuthService
     @StateObject private var leagueService = LeagueService()
     @State private var seasons: [Season] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isShowingNewSeason = false
+
+    private var isOwner: Bool { auth.profile?.id == league.ownerId }
 
     var body: some View {
         Group {
@@ -20,20 +23,29 @@ struct LeagueDetailView: View {
                     message: "Add a season to start adding teams and games."
                 )
             } else {
-                List(seasons) { season in
-                    NavigationLink(season.name) {
-                        SeasonDetailView(season: season)
+                List {
+                    if isOwner {
+                        Section {
+                            JoinCodeCard(league: league)
+                        }
+                    }
+                    ForEach(seasons) { season in
+                        NavigationLink(season.name) {
+                            SeasonDetailView(season: season, isOwner: isOwner)
+                        }
                     }
                 }
             }
         }
         .navigationTitle(league.name)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isShowingNewSeason = true
-                } label: {
-                    Image(systemName: "plus")
+            if isOwner {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingNewSeason = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
         }
@@ -63,6 +75,30 @@ struct LeagueDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct JoinCodeCard: View {
+    let league: League
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Join Code")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Text(league.joinCode)
+                    .font(.title2.monospaced().bold())
+                Spacer()
+                ShareLink(item: "Join my Boxscore league \"\(league.name)\"! Open the app, tap Join a League, and enter code \(league.joinCode).") {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            Text("Share this once — anyone with the code can pick a team and add themselves.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 

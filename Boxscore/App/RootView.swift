@@ -7,15 +7,8 @@ struct RootView: View {
         Group {
             if auth.isLoading {
                 LoadingView()
-            } else if let profile = auth.profile {
-                switch profile.role {
-                case .commissioner:
-                    CommissionerHomeView(profile: profile)
-                case .player:
-                    PlayerHomeView(profile: profile)
-                }
             } else {
-                WelcomeView()
+                MainTabView(profile: auth.profile)
             }
         }
     }

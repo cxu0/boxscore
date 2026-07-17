@@ -34,14 +34,11 @@ final class AuthService: ObservableObject {
         }
     }
 
-    func signUp(email: String, password: String, displayName: String, role: UserRole) async throws {
+    func signUp(email: String, password: String, displayName: String) async throws {
         try await client.auth.signUp(
             email: email,
             password: password,
-            data: [
-                "display_name": .string(displayName),
-                "role": .string(role.rawValue)
-            ]
+            data: ["display_name": .string(displayName)]
         )
         if let userId = try? await client.auth.session.user.id {
             await loadProfile(userId: userId)

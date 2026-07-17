@@ -1,23 +1,32 @@
 import Foundation
 
-enum UserRole: String, Codable {
-    case commissioner
-    case player
-}
-
 struct Profile: Codable, Identifiable, Equatable {
     let id: UUID
-    var role: UserRole
     var displayName: String
     var email: String
     var createdAt: Date?
 }
 
-struct League: Codable, Identifiable, Equatable {
+struct League: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
     var ownerId: UUID
+    var isPublic: Bool
+    var joinCode: String
     var createdAt: Date?
+}
+
+/// A league tagged with how the current user relates to it — used by the
+/// "My Leagues" list, which merges owned and joined leagues into one feed.
+struct MyLeague: Identifiable, Equatable {
+    enum Relationship {
+        case owner
+        case player
+    }
+    let league: League
+    let relationship: Relationship
+
+    var id: UUID { league.id }
 }
 
 struct Season: Codable, Identifiable, Equatable {
@@ -41,8 +50,30 @@ struct RosterSpot: Codable, Identifiable, Equatable {
     var teamId: UUID
     var displayName: String
     var playerId: UUID?
-    var inviteCode: String?
     var createdAt: Date?
+}
+
+enum ClaimRequestStatus: String, Codable {
+    case pending
+    case approved
+    case denied
+}
+
+/// A player's request to take over a placeholder roster spot, with the
+/// requester's name embedded via PostgREST's foreign-key select.
+struct ClaimRequest: Codable, Identifiable, Equatable {
+    let id: UUID
+    var rosterSpotId: UUID
+    var requestedBy: UUID
+    var status: ClaimRequestStatus
+    var createdAt: Date?
+    var profiles: RequesterRef?
+
+    struct RequesterRef: Codable, Equatable {
+        let displayName: String
+    }
+
+    var requesterName: String { profiles?.displayName ?? "Unknown player" }
 }
 
 enum GameStatus: String, Codable {

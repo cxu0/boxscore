@@ -6,7 +6,6 @@ struct SignUpView: View {
     @State private var displayName = ""
     @State private var email = ""
     @State private var password = ""
-    @State private var role: UserRole = .player
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
@@ -21,13 +20,6 @@ struct SignUpView: View {
                     .textInputAutocapitalization(.never)
                 SecureField("Password", text: $password)
                     .textContentType(.newPassword)
-            }
-            Section("I am a...") {
-                Picker("Role", selection: $role) {
-                    Text("Player").tag(UserRole.player)
-                    Text("Commissioner").tag(UserRole.commissioner)
-                }
-                .pickerStyle(.segmented)
             }
             if let errorMessage {
                 ErrorBanner(message: errorMessage)
@@ -56,7 +48,7 @@ struct SignUpView: View {
         isSubmitting = true
         errorMessage = nil
         do {
-            try await auth.signUp(email: email, password: password, displayName: displayName, role: role)
+            try await auth.signUp(email: email, password: password, displayName: displayName)
         } catch {
             errorMessage = error.localizedDescription
         }

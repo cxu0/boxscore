@@ -3,6 +3,7 @@ import SwiftUI
 struct GameDetailView: View {
     let game: Game
     let teams: [Team]
+    let isOwner: Bool
 
     @StateObject private var rosterService = RosterService()
     @StateObject private var leagueService = LeagueService()
@@ -21,19 +22,15 @@ struct GameDetailView: View {
             }
             Section(awayTeam?.name ?? "Away") {
                 ForEach(awayRoster) { spot in
-                    NavigationLink(spot.displayName) {
-                        PlayerStatEntryView(game: game, rosterSpot: spot)
-                    }
+                    rosterRow(spot)
                 }
             }
             Section(homeTeam?.name ?? "Home") {
                 ForEach(homeRoster) { spot in
-                    NavigationLink(spot.displayName) {
-                        PlayerStatEntryView(game: game, rosterSpot: spot)
-                    }
+                    rosterRow(spot)
                 }
             }
-            if game.status == .scheduled {
+            if isOwner && game.status == .scheduled {
                 Section {
                     Button("Mark Game Final") {
                         Task { try? await leagueService.markGameFinal(gameId: game.id) }
@@ -44,6 +41,17 @@ struct GameDetailView: View {
         .navigationTitle("\(awayTeam?.name ?? "") @ \(homeTeam?.name ?? "")")
         .overlay { if isLoading { LoadingView() } }
         .task { await loadRosters() }
+    }
+
+    @ViewBuilder
+    private func rosterRow(_ spot: RosterSpot) -> some View {
+        if isOwner {
+            NavigationLink(spot.displayName) {
+                PlayerStatEntryView(game: game, rosterSpot: spot)
+            }
+        } else {
+            Text(spot.displayName)
+        }
     }
 
     private func loadRosters() async {
