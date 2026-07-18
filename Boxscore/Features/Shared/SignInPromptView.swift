@@ -7,22 +7,38 @@ struct SignInPromptView: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 48))
+        VStack(spacing: 0) {
+            Spacer()
+            Wordmark(size: 40)
+            Text("Your league. Your stats. Your story.")
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
+                .padding(.top, 6)
+
+            Text("Join the game.")
+                .font(.display(40))
+                .padding(.top, 36)
             Text(message)
-                .font(.subheadline)
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            VStack(spacing: 12) {
-                NavigationLink("Sign Up") { SignUpView() }
-                    .buttonStyle(.borderedProminent)
-                NavigationLink("Log In") { LogInView() }
-                    .buttonStyle(.bordered)
+                .padding(.horizontal, 40)
+                .padding(.top, 6)
+
+            VStack(spacing: 10) {
+                NavigationLink { SignUpView() } label: {
+                    Text("Sign Up")
+                }
+                .buttonStyle(BrandPrimaryButtonStyle())
+                NavigationLink { LogInView() } label: {
+                    Text("Log In")
+                }
+                .buttonStyle(BrandSecondaryButtonStyle())
             }
-            .frame(maxWidth: 240)
+            .padding(.horizontal, 40)
+            .padding(.top, 28)
+            Spacer()
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

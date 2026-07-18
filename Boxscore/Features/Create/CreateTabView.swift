@@ -14,32 +14,54 @@ struct CreateTabView: View {
         NavigationStack {
             Group {
                 if let profile {
-                    Form {
-                        Section("New League") {
-                            TextField("League Name", text: $name)
-                            Toggle("Public — discoverable by nearby players", isOn: $isPublic)
-                        }
-                        if let errorMessage {
-                            ErrorBanner(message: errorMessage)
-                        }
-                        Section {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("START A\nLEAGUE")
+                                .font(.display(38))
+                                .padding(.top, 8)
+                            Text("Name it, share one join code, and your players add themselves. That's the whole setup.")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+
+                            SectionHeaderText("League name")
+                            BrandTextField(placeholder: "e.g. Tuesday Night Hoops", text: $name)
+
+                            Toggle(isOn: $isPublic) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Public league")
+                                        .font(.system(size: 15, weight: .bold))
+                                    Text("Discoverable by players near you")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .tint(Brand.orange)
+                            .brandCard()
+
+                            if let errorMessage {
+                                ErrorBanner(message: errorMessage)
+                            }
+
                             Button {
                                 Task { await create(ownerId: profile.id) }
                             } label: {
                                 if isSubmitting {
-                                    ProgressView()
+                                    ProgressView().tint(.white)
                                 } else {
-                                    Text("Create League").frame(maxWidth: .infinity)
+                                    Text("Create League")
                                 }
                             }
+                            .buttonStyle(BrandPrimaryButtonStyle())
                             .disabled(name.isEmpty || isSubmitting)
+                            .opacity(name.isEmpty ? 0.5 : 1)
                         }
+                        .padding(.horizontal, 18)
                     }
                 } else {
                     SignInPromptView(message: "Sign in to create and run your own league.")
                 }
             }
-            .navigationTitle("Create")
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $createdLeague) { league in
                 LeagueDetailView(league: league)
             }

@@ -19,5 +19,6 @@ struct MainTabView: View {
             MeTabView(profile: profile)
                 .tabItem { Label("Me", systemImage: "person.crop.circle") }
         }
+        .tint(Brand.orange)
     }
 }

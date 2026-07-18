@@ -23,10 +23,34 @@ struct PlayerStatEntryView: View {
 
     var body: some View {
         ScrollView {
+            // Running header: player name + live point total.
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rosterSpot.displayName.uppercased())
+                        .font(.display(26))
+                    Text("Auto-saves as you tap")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text("\(stat.pts)")
+                        .font(.display(40))
+                        .monospacedDigit()
+                        .foregroundStyle(Brand.orange)
+                        .contentTransition(.numericText())
+                    Text("PTS")
+                        .font(.system(size: 12, weight: .black).width(.condensed))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 6)
+
             if let errorMessage {
                 ErrorBanner(message: errorMessage)
             }
-            LazyVGrid(columns: columns, spacing: 20) {
+            LazyVGrid(columns: columns, spacing: 10) {
                 StatStepper(label: "PTS", value: $stat.pts)
                 StatStepper(label: "REB", value: $stat.reb)
                 StatStepper(label: "AST", value: $stat.ast)
@@ -43,7 +67,8 @@ struct PlayerStatEntryView: View {
             }
             .padding()
         }
-        .navigationTitle(rosterSpot.displayName)
+        .navigationTitle("Box Score")
+        .navigationBarTitleDisplayMode(.inline)
         .overlay { if isLoading { LoadingView() } }
         .task { await loadExisting() }
         .onChange(of: stat) { _, newValue in scheduleSave(newValue) }

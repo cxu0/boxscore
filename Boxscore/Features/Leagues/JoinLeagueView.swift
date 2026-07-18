@@ -20,61 +20,105 @@ struct JoinLeagueView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Join Code", text: $code)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .disabled(foundLeague != nil)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Join a league.")
+                    .font(.display(34))
+                    .padding(.top, 8)
+
                 if foundLeague == nil {
+                    Text("Enter the code your organizer shared.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    BrandTextField(placeholder: "Join code", text: $code)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.display(22))
+
                     Button {
                         Task { await findLeague() }
                     } label: {
                         if isLookingUp {
-                            ProgressView()
+                            ProgressView().tint(.white)
                         } else {
                             Text("Find League")
                         }
                     }
+                    .buttonStyle(BrandPrimaryButtonStyle())
                     .disabled(code.isEmpty || isLookingUp)
+                    .opacity(code.isEmpty ? 0.5 : 1)
                 }
-            }
 
-            if let foundLeague {
-                Section(foundLeague.name) {
+                if let foundLeague {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionHeaderText("League found")
+                        Text(foundLeague.name)
+                            .font(.display(26))
+                    }
+                    .brandCard()
+
                     if teams.isEmpty {
                         Text("This league hasn't added teams yet — check back soon.")
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
+                            .brandCard()
                     } else {
-                        Picker("Team", selection: $selectedTeamId) {
-                            Text("Select a team").tag(UUID?.none)
-                            ForEach(teams) { Text($0.name).tag(Optional($0.id)) }
+                        SectionHeaderText("Pick your team")
+                        VStack(spacing: 8) {
+                            ForEach(teams) { team in
+                                Button {
+                                    selectedTeamId = team.id
+                                } label: {
+                                    HStack {
+                                        Text(team.name)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        if selectedTeamId == team.id {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(Brand.orange)
+                                        }
+                                    }
+                                    .brandCard()
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .strokeBorder(
+                                                selectedTeamId == team.id ? Brand.orange : .clear,
+                                                lineWidth: 2
+                                            )
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        TextField("Your Name", text: $displayName)
+
+                        SectionHeaderText("Your name")
+                        BrandTextField(placeholder: "Your name", text: $displayName)
+
+                        Button {
+                            Task { await join() }
+                        } label: {
+                            if isJoining {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text("Join Team")
+                            }
+                        }
+                        .buttonStyle(BrandPrimaryButtonStyle())
+                        .disabled(selectedTeamId == nil || displayName.isEmpty || isJoining)
+                        .opacity(selectedTeamId == nil || displayName.isEmpty ? 0.5 : 1)
                     }
                 }
-            }
 
-            if let errorMessage {
-                ErrorBanner(message: errorMessage)
-            }
-
-            if foundLeague != nil && !teams.isEmpty {
-                Section {
-                    Button {
-                        Task { await join() }
-                    } label: {
-                        if isJoining {
-                            ProgressView()
-                        } else {
-                            Text("Join Team").frame(maxWidth: .infinity)
-                        }
-                    }
-                    .disabled(selectedTeamId == nil || displayName.isEmpty || isJoining)
+                if let errorMessage {
+                    ErrorBanner(message: errorMessage)
                 }
             }
+            .padding(.horizontal, 20)
         }
         .navigationTitle("Join a League")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }

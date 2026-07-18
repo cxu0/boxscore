@@ -10,34 +10,52 @@ struct SignUpView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        Form {
-            Section("Account") {
-                TextField("Name", text: $displayName)
-                    .textContentType(.name)
-                TextField("Email", text: $email)
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                SecureField("Password", text: $password)
-                    .textContentType(.newPassword)
-            }
-            if let errorMessage {
-                ErrorBanner(message: errorMessage)
-            }
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Create your\nplayer account.")
+                    .font(.display(36))
+                    .padding(.top, 12)
+
+                VStack(spacing: 10) {
+                    BrandTextField(placeholder: "Name", text: $displayName)
+                        .textContentType(.name)
+                    BrandTextField(placeholder: "Email address", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    BrandTextField(placeholder: "Password", text: $password, isSecure: true)
+                        .textContentType(.newPassword)
+                }
+                .padding(.top, 8)
+
+                if let errorMessage {
+                    ErrorBanner(message: errorMessage)
+                }
+
                 Button {
                     Task { await signUp() }
                 } label: {
                     if isSubmitting {
-                        ProgressView()
+                        ProgressView().tint(.white)
                     } else {
-                        Text("Create Account").frame(maxWidth: .infinity)
+                        Text("Create Account")
                     }
                 }
+                .buttonStyle(BrandPrimaryButtonStyle())
                 .disabled(isSubmitting || !isValid)
+                .opacity(isValid ? 1 : 0.5)
+
+                Text("One account for everything — run leagues, play in them, and build your career stats.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
             }
+            .padding(.horizontal, 24)
         }
         .navigationTitle("Sign Up")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var isValid: Bool {
@@ -53,5 +71,26 @@ struct SignUpView: View {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false
+    }
+}
+
+/// Rounded filled text field matching the prototype's input style.
+struct BrandTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    var isSecure = false
+
+    var body: some View {
+        Group {
+            if isSecure {
+                SecureField(placeholder, text: $text)
+            } else {
+                TextField(placeholder, text: $text)
+            }
+        }
+        .font(.system(size: 15))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 14))
     }
 }

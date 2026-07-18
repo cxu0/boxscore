@@ -16,39 +16,66 @@ struct LeagueDetailView: View {
         Group {
             if isLoading {
                 LoadingView()
-            } else if seasons.isEmpty {
-                EmptyStateView(
-                    systemImage: "calendar",
-                    title: "No Seasons Yet",
-                    message: "Add a season to start adding teams and games."
-                )
             } else {
-                List {
-                    if isOwner {
-                        Section {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(league.name.uppercased())
+                            .font(.display(32))
+                            .padding(.top, 4)
+
+                        if isOwner {
                             JoinCodeCard(league: league)
                         }
-                    }
-                    ForEach(seasons) { season in
-                        NavigationLink(season.name) {
-                            SeasonDetailView(season: season, isOwner: isOwner)
+
+                        HStack {
+                            SectionHeaderText("Seasons")
+                            Spacer()
+                            if isOwner {
+                                Button {
+                                    isShowingNewSeason = true
+                                } label: {
+                                    Label("Add", systemImage: "plus")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Brand.orange)
+                                }
+                            }
+                        }
+
+                        if seasons.isEmpty {
+                            Text("No seasons yet. Add one to start adding teams and games.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .brandCard()
+                        } else {
+                            ForEach(seasons) { season in
+                                NavigationLink {
+                                    SeasonDetailView(season: season, isOwner: isOwner)
+                                } label: {
+                                    HStack {
+                                        Text(season.name)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .brandCard()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        if let errorMessage {
+                            ErrorBanner(message: errorMessage)
                         }
                     }
+                    .padding(.horizontal, 18)
                 }
             }
         }
         .navigationTitle(league.name)
-        .toolbar {
-            if isOwner {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isShowingNewSeason = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingNewSeason) {
             NewSeasonSheet { name, start, end in
                 await createSeason(name: name, start: start, end: end)
@@ -62,6 +89,7 @@ struct LeagueDetailView: View {
         isLoading = true
         do {
             seasons = try await leagueService.fetchSeasons(leagueId: league.id)
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -78,27 +106,33 @@ struct LeagueDetailView: View {
     }
 }
 
+/// Bold, shareable join code — the league's front door.
 private struct JoinCodeCard: View {
     let league: League
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Join Code")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            SectionHeaderText("Join code")
             HStack {
                 Text(league.joinCode)
-                    .font(.title2.monospaced().bold())
+                    .font(.display(34))
+                    .kerning(4)
+                    .foregroundStyle(Brand.orange)
                 Spacer()
                 ShareLink(item: "Join my Boxscore league \"\(league.name)\"! Open the app, tap Join a League, and enter code \(league.joinCode).") {
                     Label("Share", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Brand.orange, in: Capsule())
                 }
             }
             Text("Share this once — anyone with the code can pick a team and add themselves.")
-                .font(.caption)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 4)
+        .brandCard(padding: 16)
     }
 }
 

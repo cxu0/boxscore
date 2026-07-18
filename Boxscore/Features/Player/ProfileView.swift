@@ -10,55 +10,140 @@ struct ProfileView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
 
-    private var byLeague: [(league: String, seasons: [PlayerSeasonStats])] {
-        Dictionary(grouping: seasonStats, by: \.leagueName)
-            .map { (league: $0.key, seasons: $0.value) }
-            .sorted { $0.league < $1.league }
-    }
-
     var body: some View {
         Group {
             if isLoading {
                 LoadingView()
-            } else if teams.isEmpty && seasonStats.isEmpty {
-                EmptyStateView(
-                    systemImage: "person.crop.circle.badge.questionmark",
-                    title: "No Teams Yet",
-                    message: "Tap + and enter an invite code from your commissioner to join a team."
-                )
             } else {
-                List {
-                    if !teams.isEmpty {
-                        Section("My Teams") {
-                            ForEach(teams) { team in
-                                TeamMembershipRow(team: team)
-                            }
-                        }
-                    }
-                    if seasonStats.isEmpty {
-                        Section("Career") {
-                            Text("No games played yet. Your stats will appear here once a box score is entered.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Section("Career") {
-                            CareerTotalsCard(totals: seasonStats.careerTotals)
-                        }
-                        ForEach(byLeague, id: \.league) { group in
-                            Section(group.league) {
-                                ForEach(group.seasons) { season in
-                                    SeasonStatRow(season: season)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ProfileHero(name: profile.displayName, subtitle: heroSubtitle)
+
+                        VStack(alignment: .leading, spacing: 16) {
+                            if teams.isEmpty && seasonStats.isEmpty {
+                                emptyState
+                            } else {
+                                careerSection
+                                if !seasonStats.isEmpty {
+                                    seasonBreakdownSection
+                                }
+                                if !teams.isEmpty {
+                                    teamsSection
                                 }
                             }
+                            if let errorMessage {
+                                ErrorBanner(message: errorMessage)
+                            }
                         }
+                        .padding(.horizontal, 18)
                     }
                 }
+                .ignoresSafeArea(edges: .top)
             }
         }
-        .navigationTitle(profile.displayName)
         .onAppear { Task { await load() } }
         .refreshable { await load() }
+    }
+
+    // MARK: Sections
+
+    private var heroSubtitle: String {
+        guard let first = teams.first else { return "Free agent — join a league to get started" }
+        if teams.count == 1 {
+            return "\(first.teamName) · \(first.leagueName)"
+        }
+        return "\(first.teamName) · \(first.leagueName)  +\(teams.count - 1) more"
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No teams yet")
+                .font(.system(size: 16, weight: .bold))
+            Text("Join a team with your league's code from the Leagues tab, and your career starts here.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .brandCard(padding: 18)
+    }
+
+    private var careerSection: some View {
+        let t = seasonStats.careerTotals
+        let gp = max(t.gamesPlayed, 1)
+        let fgPct = t.fga > 0 ? Int(round(Double(t.fgm) / Double(t.fga) * 100)) : 0
+        return VStack(alignment: .leading, spacing: 8) {
+            SectionHeaderText("Career stats")
+            if t.gamesPlayed == 0 {
+                Text("No games played yet. Your stats will appear the moment a box score goes final.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .brandCard()
+            } else {
+                HStack(spacing: 8) {
+                    BigStatTile(value: String(format: "%.1f", Double(t.pts) / Double(gp)), label: "PPG")
+                    BigStatTile(value: String(format: "%.1f", Double(t.reb) / Double(gp)), label: "RPG")
+                    BigStatTile(value: String(format: "%.1f", Double(t.ast) / Double(gp)), label: "APG")
+                    BigStatTile(value: "\(fgPct)", label: "FG%")
+                }
+                Text("\(t.gamesPlayed) career games · \(t.pts) points")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var seasonBreakdownSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeaderText("Season breakdown")
+            VStack(spacing: 0) {
+                HStack {
+                    Text("SEASON").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("G").frame(width: 32)
+                    Text("PPG").frame(width: 40)
+                    Text("RPG").frame(width: 40)
+                    Text("APG").frame(width: 40)
+                }
+                .font(.system(size: 9, weight: .black))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+                ForEach(Array(seasonStats.enumerated()), id: \.element.id) { index, season in
+                    if index > 0 { Divider().padding(.leading, 14) }
+                    SeasonStatRow(season: season)
+                }
+            }
+            .background(Brand.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Brand.border, lineWidth: 1)
+            )
+        }
+    }
+
+    private var teamsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeaderText("Teams & leagues")
+            ForEach(teams) { team in
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Brand.orange.opacity(0.18))
+                            .frame(width: 36, height: 36)
+                        Image(systemName: "trophy.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Brand.orange)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(team.teamName)
+                            .font(.system(size: 15, weight: .bold))
+                        Text("\(team.leagueName) · \(team.seasonName)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .brandCard(padding: 12)
+            }
+        }
     }
 
     private func load() async {
@@ -68,6 +153,7 @@ struct ProfileView: View {
             async let joined = rosterService.fetchPlayerTeams(playerId: profile.id)
             seasonStats = try await stats
             teams = try await joined
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -75,62 +161,88 @@ struct ProfileView: View {
     }
 }
 
-private struct TeamMembershipRow: View {
-    let team: PlayerTeam
+/// Pro-athlete-card hero: dark gradient, giant faded watermark initials,
+/// name in condensed black type.
+private struct ProfileHero: View {
+    let name: String
+    let subtitle: String
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(team.teamName).font(.headline)
-            Text("\(team.leagueName) · \(team.seasonName)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+    private var initials: String {
+        let parts = name.split(separator: " ")
+        let letters = parts.prefix(2).compactMap { $0.first }
+        return letters.isEmpty ? "BX" : String(letters).uppercased()
     }
-}
-
-private struct CareerTotalsCard: View {
-    let totals: PlayerSeasonStats.Totals
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("\(totals.gamesPlayed) games played")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 12) {
-                StatTile(label: "PTS", value: totals.pts)
-                StatTile(label: "REB", value: totals.reb)
-                StatTile(label: "AST", value: totals.ast)
-                StatTile(label: "STL", value: totals.stl)
-                StatTile(label: "BLK", value: totals.blk)
-                StatTile(label: "TO", value: totals.turnovers)
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: [Color(white: 0.18), Color(white: 0.04)],
+                startPoint: .top, endPoint: .bottom
+            )
+
+            Text(initials)
+                .font(.display(150))
+                .foregroundStyle(.white.opacity(0.07))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 8)
+                .offset(y: -20)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("PLAYER")
+                    .font(.system(size: 9, weight: .black).width(.condensed))
+                    .kerning(2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Brand.orange, in: RoundedRectangle(cornerRadius: 4))
+                Text(name)
+                    .font(.display(38))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
         }
-        .padding(.vertical, 8)
-    }
-}
-
-private struct StatTile: View {
-    let label: String
-    let value: Int
-
-    var body: some View {
-        VStack {
-            Text("\(value)").font(.title2.bold())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
+        .frame(height: 240)
+        .clipped()
     }
 }
 
 private struct SeasonStatRow: View {
     let season: PlayerSeasonStats
 
+    private var gp: Int { max(season.gamesPlayed, 1) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(season.seasonName).font(.headline)
-            Text("\(season.gamesPlayed) GP · \(season.pts) PTS · \(season.reb) REB · \(season.ast) AST")
-                .font(.caption)
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(season.seasonName)
+                    .font(.system(size: 13, weight: .bold))
+                Text(season.leagueName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(season.gamesPlayed)")
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+                .frame(width: 32)
+            Text(String(format: "%.1f", Double(season.pts) / Double(gp)))
+                .font(.display(16))
+                .foregroundStyle(Brand.orange)
+                .frame(width: 40)
+            Text(String(format: "%.1f", Double(season.reb) / Double(gp)))
+                .font(.system(size: 13))
+                .frame(width: 40)
+            Text(String(format: "%.1f", Double(season.ast) / Double(gp)))
+                .font(.system(size: 13))
+                .frame(width: 40)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }

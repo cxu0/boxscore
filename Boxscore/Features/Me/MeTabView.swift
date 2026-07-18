@@ -10,16 +10,23 @@ struct MeTabView: View {
             Group {
                 if let profile {
                     ProfileView(profile: profile)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Sign Out") {
-                                    Task { try? await auth.signOut() }
-                                }
+                        .toolbar(.hidden, for: .navigationBar)
+                        .overlay(alignment: .topTrailing) {
+                            Button {
+                                Task { try? await auth.signOut() }
+                            } label: {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .padding(10)
+                                    .background(.white.opacity(0.12), in: Circle())
                             }
+                            .padding(.trailing, 16)
+                            .padding(.top, 8)
                         }
                 } else {
                     SignInPromptView(message: "Sign in to see your career stats and teams.")
-                        .navigationTitle("Me")
+                        .toolbar(.hidden, for: .navigationBar)
                 }
             }
         }
