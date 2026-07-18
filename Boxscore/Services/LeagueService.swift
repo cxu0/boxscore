@@ -63,22 +63,43 @@ final class LeagueService: ObservableObject {
     /// Creates the league and its first season in one call — a fresh league
     /// always has somewhere for teams to live, without the organizer ever
     /// having to think about "seasons" on day one.
-    func createLeague(name: String, isPublic: Bool, ownerId: UUID) async throws -> League {
+    /// Creates the league, its first season, and any teams the organizer added
+    /// during setup — one call so a brand-new league is ready to share.
+    func createLeague(
+        name: String,
+        isPublic: Bool,
+        format: LeagueFormat,
+        ownerId: UUID,
+        seasonName: String? = nil,
+        startDate: Date? = nil,
+        endDate: Date? = nil,
+        teamNames: [String] = []
+    ) async throws -> League {
         struct NewLeague: Encodable {
             let name: String
             let owner_id: String
             let is_public: Bool
+            let format: String
         }
         let league: League = try await client
             .from("leagues")
-            .insert(NewLeague(name: name, owner_id: ownerId.uuidString, is_public: isPublic))
+            .insert(NewLeague(name: name, owner_id: ownerId.uuidString, is_public: isPublic, format: format.rawValue))
             .select()
             .single()
             .execute()
             .value
 
         let year = Calendar.current.component(.year, from: Date())
-        _ = try await createSeason(name: "\(year) Season", leagueId: league.id, startDate: nil, endDate: nil)
+        let season = try await createSeason(
+            name: seasonName?.isEmpty == false ? seasonName! : "\(year) Season",
+            leagueId: league.id,
+            startDate: startDate,
+            endDate: endDate
+        )
+
+        for teamName in teamNames where !teamName.trimmingCharacters(in: .whitespaces).isEmpty {
+            _ = try await createTeam(name: teamName, seasonId: season.id)
+        }
 
         return league
     }
@@ -121,6 +142,17 @@ final class LeagueService: ObservableObject {
             .order("name")
             .execute()
             .value
+    }
+
+    /// Number of roster spots on a team — used for the league hero's player count.
+    func fetchRosterCount(teamId: UUID) async throws -> Int {
+        let spots: [RosterSpot] = try await client
+            .from("roster_spots")
+            .select()
+            .eq("team_id", value: teamId)
+            .execute()
+            .value
+        return spots.count
     }
 
     func createTeam(name: String, seasonId: UUID) async throws -> Team {
@@ -166,11 +198,64 @@ final class LeagueService: ObservableObject {
             .value
     }
 
-    func markGameFinal(gameId: UUID) async throws {
+    /// Records the final score and flips the game to final in one call.
+    func setGameResult(gameId: UUID, homeScore: Int, awayScore: Int) async throws -> Game {
         try await client
-            .from("games")
-            .update(["status": GameStatus.final.rawValue])
-            .eq("id", value: gameId)
+            .rpc("set_game_result", params: [
+                "p_game_id": gameId.uuidString,
+                "p_home_score": String(homeScore),
+                "p_away_score": String(awayScore)
+            ])
+            .single()
             .execute()
+            .value
+    }
+
+    /// Derives each team's W-L record and current streak from the final games'
+    /// manually-entered scores. Pure client-side — no extra round trips.
+    static func standings(teams: [Team], games: [Game]) -> [TeamStanding] {
+        var wins: [UUID: Int] = [:]
+        var losses: [UUID: Int] = [:]
+        // Results per team in chronological order, for streak calculation.
+        var history: [UUID: [(date: Date, won: Bool)]] = [:]
+
+        let finals = games
+            .filter { $0.status == .final && $0.hasResult }
+            .sorted { $0.scheduledAt < $1.scheduledAt }
+
+        for game in finals {
+            guard let hs = game.homeScore, let as_ = game.awayScore, hs != as_ else { continue }
+            let homeWon = hs > as_
+            let winner = homeWon ? game.homeTeamId : game.awayTeamId
+            let loser = homeWon ? game.awayTeamId : game.homeTeamId
+            wins[winner, default: 0] += 1
+            losses[loser, default: 0] += 1
+            history[winner, default: []].append((game.scheduledAt, true))
+            history[loser, default: []].append((game.scheduledAt, false))
+        }
+
+        return teams.map { team in
+            let results = (history[team.id] ?? []).sorted { $0.date < $1.date }
+            return TeamStanding(
+                team: team,
+                wins: wins[team.id] ?? 0,
+                losses: losses[team.id] ?? 0,
+                streak: streakString(results.map(\.won))
+            )
+        }
+        .sorted {
+            if $0.wins != $1.wins { return $0.wins > $1.wins }
+            if $0.losses != $1.losses { return $0.losses < $1.losses }
+            return $0.team.name < $1.team.name
+        }
+    }
+
+    private static func streakString(_ results: [Bool]) -> String {
+        guard let last = results.last else { return "—" }
+        var count = 0
+        for won in results.reversed() {
+            if won == last { count += 1 } else { break }
+        }
+        return "\(last ? "W" : "L")\(count)"
     }
 }

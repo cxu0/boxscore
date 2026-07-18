@@ -4,7 +4,22 @@ struct Profile: Codable, Identifiable, Equatable {
     let id: UUID
     var displayName: String
     var email: String
+    var avatarUrl: String?
     var createdAt: Date?
+}
+
+enum LeagueFormat: String, Codable, CaseIterable {
+    case fiveOnFive = "5v5"
+    case threeOnThree = "3v3"
+    case rec
+
+    var label: String {
+        switch self {
+        case .fiveOnFive: return "5v5"
+        case .threeOnThree: return "3v3"
+        case .rec: return "Rec"
+        }
+    }
 }
 
 struct League: Codable, Identifiable, Hashable {
@@ -13,6 +28,7 @@ struct League: Codable, Identifiable, Hashable {
     var ownerId: UUID
     var isPublic: Bool
     var joinCode: String
+    var format: LeagueFormat
     var createdAt: Date?
 }
 
@@ -88,7 +104,42 @@ struct Game: Codable, Identifiable, Equatable {
     var awayTeamId: UUID
     var scheduledAt: Date
     var status: GameStatus
+    var homeScore: Int?
+    var awayScore: Int?
     var createdAt: Date?
+
+    var hasResult: Bool { homeScore != nil && awayScore != nil }
+}
+
+/// One team's computed standing, derived client-side from final game scores.
+struct TeamStanding: Identifiable, Equatable {
+    let team: Team
+    var wins: Int
+    var losses: Int
+    /// e.g. "W5", "L1" — most recent result streak.
+    var streak: String
+
+    var id: UUID { team.id }
+    var record: String { "\(wins)-\(losses)" }
+    var winPct: Double {
+        let total = wins + losses
+        return total == 0 ? 0 : Double(wins) / Double(total)
+    }
+}
+
+/// One entry in a player's recent-games list on their profile.
+struct RecentGame: Identifiable, Equatable {
+    let id: UUID
+    var opponentName: String
+    var isHome: Bool
+    var result: GameResult
+    var scoreLine: String
+    var pts: Int
+    var reb: Int
+    var ast: Int
+    var date: Date
+
+    enum GameResult { case win, loss, pending }
 }
 
 /// Mirrors `box_scores`. Every count defaults to 0 so a fresh row can be

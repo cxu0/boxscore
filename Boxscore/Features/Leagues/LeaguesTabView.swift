@@ -5,57 +5,54 @@ struct LeaguesTabView: View {
 
     @StateObject private var leagueService = LeagueService()
     @State private var myLeagues: [MyLeague] = []
-    @State private var isLoading = true
+    @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isShowingJoin = false
+    @State private var isShowingSignIn = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if profile == nil {
-                    SignInPromptView(message: "Sign in to see the leagues you run or play in.")
-                } else if isLoading {
-                    LoadingView()
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                Text("LEAGUES")
-                                    .font(.display(38))
-                                Spacer()
-                                Button {
-                                    isShowingJoin = true
-                                } label: {
-                                    Label("Join", systemImage: "person.badge.plus")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Brand.orange)
-                                }
-                            }
-                            .padding(.top, 8)
-
-                            if myLeagues.isEmpty {
-                                emptyState
-                            } else {
-                                SectionHeaderText("My leagues")
-                                ForEach(myLeagues) { entry in
-                                    NavigationLink {
-                                        LeagueDetailView(league: entry.league)
-                                    } label: {
-                                        LeagueCard(entry: entry)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            if let errorMessage {
-                                ErrorBanner(message: errorMessage)
-                            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("LEAGUES")
+                            .font(.display(38))
+                        Spacer()
+                        Button {
+                            startJoin()
+                        } label: {
+                            Label("Join", systemImage: "person.badge.plus")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Brand.orange)
                         }
-                        .padding(.horizontal, 18)
                     }
-                    .refreshable { await loadLeagues() }
+                    .padding(.top, 8)
+
+                    if profile == nil {
+                        guestState
+                    } else if isLoading {
+                        LoadingView().padding(.top, 40)
+                    } else if myLeagues.isEmpty {
+                        emptyState
+                    } else {
+                        SectionHeaderText("My leagues")
+                        ForEach(myLeagues) { entry in
+                            NavigationLink {
+                                LeagueDetailView(league: entry.league)
+                            } label: {
+                                LeagueCard(entry: entry)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if let errorMessage {
+                        ErrorBanner(message: errorMessage)
+                    }
                 }
+                .padding(.horizontal, 18)
             }
+            .refreshable { if profile != nil { await loadLeagues() } }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $isShowingJoin) {
                 if let profile {
@@ -64,8 +61,32 @@ struct LeaguesTabView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isShowingSignIn) {
+                NavigationStack {
+                    SignInPromptView(message: "Sign in to join a league and start tracking your stats.")
+                }
+            }
             .task { if profile != nil { await loadLeagues() } }
         }
+    }
+
+    // Guests can browse the tab; joining is the identity moment.
+    private var guestState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Find your league")
+                .font(.system(size: 16, weight: .bold))
+            Text("Got a join code from your organizer? Join a league to add yourself to a team and start your career stats.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            Button {
+                startJoin()
+            } label: {
+                Text("Join a League")
+            }
+            .buttonStyle(BrandPrimaryButtonStyle())
+            .padding(.top, 6)
+        }
+        .brandCard(padding: 18)
     }
 
     private var emptyState: some View {
@@ -76,7 +97,7 @@ struct LeaguesTabView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Button {
-                isShowingJoin = true
+                startJoin()
             } label: {
                 Text("Join a League")
             }
@@ -84,6 +105,14 @@ struct LeaguesTabView: View {
             .padding(.top, 6)
         }
         .brandCard(padding: 18)
+    }
+
+    private func startJoin() {
+        if profile == nil {
+            isShowingSignIn = true
+        } else {
+            isShowingJoin = true
+        }
     }
 
     private func loadLeagues() async {
@@ -115,6 +144,9 @@ private struct LeagueCard: View {
                     .kerning(1.2)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Text(entry.league.format.label)
+                    .font(.system(size: 10, weight: .black).width(.condensed))
+                    .foregroundStyle(.secondary)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.tertiary)

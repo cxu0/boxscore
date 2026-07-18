@@ -55,4 +55,31 @@ final class AuthService: ObservableObject {
         try await client.auth.signOut()
         profile = nil
     }
+
+    /// Uploads a headshot to the user's own folder in the public `avatars`
+    /// bucket, saves its URL on the profile, and refreshes local state. A
+    /// cache-busting query param forces the UI to reload the new image.
+    func updateAvatar(imageData: Data) async throws {
+        let userId = try await client.auth.session.user.id
+        let path = "\(userId.uuidString)/headshot.jpg"
+
+        try await client.storage
+            .from("avatars")
+            .upload(
+                path,
+                data: imageData,
+                options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: true)
+            )
+
+        let publicURL = try client.storage.from("avatars").getPublicURL(path: path)
+        let bustedURL = "\(publicURL.absoluteString)?v=\(Int(Date().timeIntervalSince1970))"
+
+        try await client
+            .from("profiles")
+            .update(["avatar_url": bustedURL])
+            .eq("id", value: userId)
+            .execute()
+
+        await loadProfile(userId: userId)
+    }
 }

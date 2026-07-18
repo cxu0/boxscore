@@ -5,90 +5,194 @@ struct LeagueDetailView: View {
 
     @EnvironmentObject private var auth: AuthService
     @StateObject private var leagueService = LeagueService()
-    @State private var seasons: [Season] = []
+
+    @State private var season: Season?
+    @State private var teams: [Team] = []
+    @State private var games: [Game] = []
+    @State private var rosterCount = 0
+    @State private var tab: Tab = .standings
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var isShowingNewSeason = false
+    @State private var isShowingNewTeam = false
+    @State private var isShowingNewGame = false
+
+    enum Tab: String, CaseIterable { case standings, schedule, rosters }
 
     private var isOwner: Bool { auth.profile?.id == league.ownerId }
 
     var body: some View {
-        Group {
-            if isLoading {
-                LoadingView()
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(league.name.uppercased())
-                            .font(.display(32))
-                            .padding(.top, 4)
+        ScrollView {
+            VStack(spacing: 16) {
+                LeagueHero(league: league, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
 
-                        if isOwner {
-                            JoinCodeCard(league: league)
-                        }
+                VStack(spacing: 16) {
+                    if isOwner {
+                        JoinCodeCard(league: league)
+                    }
 
-                        HStack {
-                            SectionHeaderText("Seasons")
-                            Spacer()
-                            if isOwner {
-                                Button {
-                                    isShowingNewSeason = true
-                                } label: {
-                                    Label("Add", systemImage: "plus")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Brand.orange)
-                                }
-                            }
-                        }
+                    Picker("View", selection: $tab) {
+                        Text("Standings").tag(Tab.standings)
+                        Text("Schedule").tag(Tab.schedule)
+                        Text("Rosters").tag(Tab.rosters)
+                    }
+                    .pickerStyle(.segmented)
 
-                        if seasons.isEmpty {
-                            Text("No seasons yet. Add one to start adding teams and games.")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .brandCard()
-                        } else {
-                            ForEach(seasons) { season in
-                                NavigationLink {
-                                    SeasonDetailView(season: season, isOwner: isOwner)
-                                } label: {
-                                    HStack {
-                                        Text(season.name)
-                                            .font(.system(size: 15, weight: .bold))
-                                            .foregroundStyle(.primary)
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                    .brandCard()
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        if let errorMessage {
-                            ErrorBanner(message: errorMessage)
+                    if isLoading {
+                        LoadingView().padding(.top, 20)
+                    } else {
+                        switch tab {
+                        case .standings: standingsView
+                        case .schedule: scheduleView
+                        case .rosters: rostersView
                         }
                     }
-                    .padding(.horizontal, 18)
+
+                    if let errorMessage {
+                        ErrorBanner(message: errorMessage)
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .sheet(isPresented: $isShowingNewTeam) {
+            NewTeamSheet { name in await createTeam(name: name) }
+        }
+        .sheet(isPresented: $isShowingNewGame) {
+            NewGameSheet(teams: teams) { home, away, date in
+                await createGame(homeTeamId: home, awayTeamId: away, date: date)
+            }
+        }
+        .task { await loadAll() }
+        .refreshable { await loadAll() }
+    }
+
+    // MARK: Standings
+
+    private var standingsView: some View {
+        let standings = LeagueService.standings(teams: teams, games: games)
+        let played = games.contains { $0.status == .final && $0.hasResult }
+        return VStack(spacing: 0) {
+            HStack {
+                Text("#").frame(width: 24, alignment: .leading)
+                Text("TEAM").frame(maxWidth: .infinity, alignment: .leading)
+                Text("W–L").frame(width: 52, alignment: .trailing)
+                Text("STRK").frame(width: 48, alignment: .trailing)
+            }
+            .font(.system(size: 10, weight: .black).width(.condensed))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            if standings.isEmpty {
+                Text("No teams yet.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+            } else {
+                ForEach(Array(standings.enumerated()), id: \.element.id) { index, standing in
+                    if index > 0 { Divider().padding(.leading, 14) }
+                    StandingRow(rank: index + 1, standing: standing, showRecord: played)
                 }
             }
         }
-        .navigationTitle(league.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $isShowingNewSeason) {
-            NewSeasonSheet { name, start, end in
-                await createSeason(name: name, start: start, end: end)
-            }
-        }
-        .task { await loadSeasons() }
-        .refreshable { await loadSeasons() }
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Brand.border, lineWidth: 1))
     }
 
-    private func loadSeasons() async {
+    // MARK: Schedule
+
+    private var scheduleView: some View {
+        VStack(spacing: 10) {
+            if isOwner {
+                Button {
+                    isShowingNewGame = true
+                } label: {
+                    Label("Schedule a Game", systemImage: "calendar.badge.plus")
+                }
+                .buttonStyle(BrandSecondaryButtonStyle())
+                .disabled(teams.count < 2)
+            }
+            if games.isEmpty {
+                Text("No games scheduled yet.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .brandCard()
+            } else {
+                ForEach(games) { game in
+                    NavigationLink {
+                        GameDetailView(game: game, teams: teams, isOwner: isOwner) { await loadAll() }
+                    } label: {
+                        GameRow(game: game, teams: teams)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: Rosters
+
+    private var rostersView: some View {
+        VStack(spacing: 10) {
+            if isOwner {
+                Button {
+                    isShowingNewTeam = true
+                } label: {
+                    Label("Add a Team", systemImage: "plus")
+                }
+                .buttonStyle(BrandSecondaryButtonStyle())
+            }
+            if teams.isEmpty {
+                Text("No teams yet.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .brandCard()
+            } else {
+                ForEach(teams) { team in
+                    NavigationLink {
+                        TeamDetailView(team: team, isOwner: isOwner)
+                    } label: {
+                        HStack(spacing: 12) {
+                            TeamCrest(name: team.name)
+                            Text(team.name)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .brandCard(padding: 12)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: Data
+
+    private func loadAll() async {
         isLoading = true
         do {
-            seasons = try await leagueService.fetchSeasons(leagueId: league.id)
+            let seasons = try await leagueService.fetchSeasons(leagueId: league.id)
+            guard let current = seasons.first else {
+                season = nil; teams = []; games = []; rosterCount = 0
+                isLoading = false
+                return
+            }
+            season = current
+            async let t = leagueService.fetchTeams(seasonId: current.id)
+            async let g = leagueService.fetchGames(seasonId: current.id)
+            teams = try await t
+            games = try await g
+            rosterCount = try await countPlayers(teams: teams)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -96,17 +200,196 @@ struct LeagueDetailView: View {
         isLoading = false
     }
 
-    private func createSeason(name: String, start: Date, end: Date) async {
+    private func countPlayers(teams: [Team]) async throws -> Int {
+        var total = 0
+        for team in teams {
+            total += try await leagueService.fetchRosterCount(teamId: team.id)
+        }
+        return total
+    }
+
+    private func createTeam(name: String) async {
+        guard let season else { return }
         do {
-            let season = try await leagueService.createSeason(name: name, leagueId: league.id, startDate: start, endDate: end)
-            seasons.insert(season, at: 0)
+            let team = try await leagueService.createTeam(name: name, seasonId: season.id)
+            teams.append(team)
+            teams.sort { $0.name < $1.name }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func createGame(homeTeamId: UUID, awayTeamId: UUID, date: Date) async {
+        guard let season else { return }
+        do {
+            let game = try await leagueService.createGame(seasonId: season.id, homeTeamId: homeTeamId, awayTeamId: awayTeamId, scheduledAt: date)
+            games.insert(game, at: 0)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 }
 
-/// Bold, shareable join code — the league's front door.
+// MARK: - Hero
+
+private struct LeagueHero: View {
+    let league: League
+    let season: Season?
+    let teamCount: Int
+    let gameCount: Int
+    let playerCount: Int
+
+    private var inSeason: Bool {
+        guard let season else { return true }
+        let now = Date()
+        if let start = season.startDate, now < start { return false }
+        if let end = season.endDate, now > end { return false }
+        return true
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: [Color(white: 0.16), Color(white: 0.04)], startPoint: .top, endPoint: .bottom)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Spacer()
+                    HStack(spacing: 5) {
+                        Circle().fill(inSeason ? Brand.orange : .gray).frame(width: 7, height: 7)
+                        Text(inSeason ? "IN SEASON" : "OFFSEASON")
+                            .font(.system(size: 11, weight: .black).width(.condensed))
+                            .kerning(1)
+                            .foregroundStyle(inSeason ? Brand.orange : .gray)
+                    }
+                }
+                Spacer()
+                Text([season?.name, league.format.label].compactMap { $0 }.joined(separator: " · ").uppercased())
+                    .font(.system(size: 12, weight: .black).width(.condensed))
+                    .kerning(1.5)
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(league.name)
+                    .font(.display(38))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+                HStack(spacing: 22) {
+                    HeroStat(value: teamCount, label: "TEAMS")
+                    HeroStat(value: gameCount, label: "GAMES")
+                    HeroStat(value: playerCount, label: "PLAYERS")
+                }
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
+            .padding(.top, 56)
+        }
+        .frame(minHeight: 240)
+        .clipped()
+    }
+}
+
+private struct HeroStat: View {
+    let value: Int
+    let label: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("\(value)")
+                .font(.display(26))
+                .foregroundStyle(.white)
+            Text(label)
+                .font(.system(size: 10, weight: .black).width(.condensed))
+                .kerning(0.5)
+                .foregroundStyle(.white.opacity(0.55))
+        }
+    }
+}
+
+// MARK: - Rows & cards
+
+private struct StandingRow: View {
+    let rank: Int
+    let standing: TeamStanding
+    let showRecord: Bool
+
+    var body: some View {
+        HStack {
+            Text("\(rank)")
+                .font(.display(18))
+                .foregroundStyle(rank == 1 ? Brand.orange : .secondary)
+                .frame(width: 24, alignment: .leading)
+            Text(standing.team.name)
+                .font(.system(size: 15, weight: .bold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(showRecord ? standing.record : "—")
+                .font(.display(16))
+                .frame(width: 52, alignment: .trailing)
+            Text(showRecord ? standing.streak : "—")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct GameRow: View {
+    let game: Game
+    let teams: [Team]
+
+    private func teamName(_ id: UUID) -> String {
+        teams.first { $0.id == id }?.name ?? "TBD"
+    }
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(teamName(game.awayTeamId)) @ \(teamName(game.homeTeamId))")
+                    .font(.system(size: 15, weight: .bold))
+                Text(game.scheduledAt, style: .date)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if game.status == .final, let hs = game.homeScore, let as_ = game.awayScore {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(as_)–\(hs)")
+                        .font(.display(18))
+                    Text("FINAL")
+                        .font(.system(size: 9, weight: .black).width(.condensed))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .brandCard()
+    }
+}
+
+/// Monogram crest for a team (first letters), a lightweight stand-in for logos.
+struct TeamCrest: View {
+    let name: String
+    private var mono: String {
+        let parts = name.split(separator: " ")
+        return String(parts.prefix(2).compactMap { $0.first }).uppercased()
+    }
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Brand.orange.opacity(0.15))
+                .frame(width: 40, height: 40)
+            Text(mono.isEmpty ? "T" : mono)
+                .font(.display(16))
+                .foregroundStyle(Brand.orange)
+        }
+    }
+}
+
+// MARK: - Join code
+
 private struct JoinCodeCard: View {
     let league: League
 
@@ -136,33 +419,58 @@ private struct JoinCodeCard: View {
     }
 }
 
-private struct NewSeasonSheet: View {
-    let onCreate: (String, Date, Date) async -> Void
+// MARK: - Sheets
+
+private struct NewTeamSheet: View {
+    let onCreate: (String) async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var start = Date()
-    @State private var end = Date().addingTimeInterval(60 * 60 * 24 * 90)
+
+    var body: some View {
+        NavigationStack {
+            Form { TextField("Team Name", text: $name) }
+                .navigationTitle("New Team")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Create") { Task { await onCreate(name); dismiss() } }
+                            .disabled(name.isEmpty)
+                    }
+                }
+        }
+    }
+}
+
+private struct NewGameSheet: View {
+    let teams: [Team]
+    let onCreate: (UUID, UUID, Date) async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var homeTeamId: UUID?
+    @State private var awayTeamId: UUID?
+    @State private var date = Date()
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Season Name", text: $name)
-                DatePicker("Start Date", selection: $start, displayedComponents: .date)
-                DatePicker("End Date", selection: $end, displayedComponents: .date)
-            }
-            .navigationTitle("New Season")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                Picker("Home Team", selection: $homeTeamId) {
+                    Text("Select").tag(UUID?.none)
+                    ForEach(teams) { Text($0.name).tag(Optional($0.id)) }
                 }
+                Picker("Away Team", selection: $awayTeamId) {
+                    Text("Select").tag(UUID?.none)
+                    ForEach(teams) { Text($0.name).tag(Optional($0.id)) }
+                }
+                DatePicker("Date", selection: $date)
+            }
+            .navigationTitle("Schedule Game")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task {
-                            await onCreate(name, start, end)
-                            dismiss()
-                        }
+                    Button("Schedule") {
+                        guard let homeTeamId, let awayTeamId else { return }
+                        Task { await onCreate(homeTeamId, awayTeamId, date); dismiss() }
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(homeTeamId == nil || awayTeamId == nil || homeTeamId == awayTeamId)
                 }
             }
         }
