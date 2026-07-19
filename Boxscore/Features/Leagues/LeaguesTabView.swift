@@ -9,6 +9,9 @@ struct LeaguesTabView: View {
     @State private var errorMessage: String?
     @State private var isShowingJoin = false
     @State private var isShowingSignIn = false
+    // True while the guest opened the sign-in sheet specifically to join, so we
+    // can bounce them straight into the join flow once they're signed in.
+    @State private var joinAfterSignIn = false
 
     var body: some View {
         NavigationStack {
@@ -66,6 +69,21 @@ struct LeaguesTabView: View {
                     SignInPromptView(message: "Sign in to join a league and start tracking your stats.")
                 }
             }
+            // When the guest signs in, `profile` flips non-nil — close the
+            // sign-in sheet and drop them into the join flow they were after.
+            .onChange(of: profile) { _, newProfile in
+                guard newProfile != nil else { return }
+                if isShowingSignIn {
+                    isShowingSignIn = false
+                    if joinAfterSignIn {
+                        joinAfterSignIn = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            isShowingJoin = true
+                        }
+                    }
+                }
+                Task { await loadLeagues() }
+            }
             .task { if profile != nil { await loadLeagues() } }
         }
     }
@@ -109,6 +127,7 @@ struct LeaguesTabView: View {
 
     private func startJoin() {
         if profile == nil {
+            joinAfterSignIn = true
             isShowingSignIn = true
         } else {
             isShowingJoin = true

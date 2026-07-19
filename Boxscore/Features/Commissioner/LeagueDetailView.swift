@@ -5,10 +5,12 @@ struct LeagueDetailView: View {
 
     @EnvironmentObject private var auth: AuthService
     @StateObject private var leagueService = LeagueService()
+    @StateObject private var rosterService = RosterService()
 
     @State private var season: Season?
     @State private var teams: [Team] = []
     @State private var games: [Game] = []
+    @State private var myTeam: Team?
     @State private var rosterCount = 0
     @State private var tab: Tab = .standings
     @State private var isLoading = true
@@ -26,6 +28,19 @@ struct LeagueDetailView: View {
                 LeagueHero(league: league, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
 
                 VStack(spacing: 16) {
+                    if let myTeam {
+                        YourTeamCard(
+                            team: myTeam,
+                            record: LeagueService.standings(teams: teams, games: games).first { $0.team.id == myTeam.id }?.record,
+                            nextGame: nextGame(for: myTeam.id),
+                            teams: teams
+                        )
+                    }
+
+                    if let next = nextGame(for: nil), myTeam == nil {
+                        NextGameCard(game: next, teams: teams)
+                    }
+
                     if isOwner {
                         JoinCodeCard(league: league)
                     }
@@ -125,7 +140,7 @@ struct LeagueDetailView: View {
             } else {
                 ForEach(games) { game in
                     NavigationLink {
-                        GameDetailView(game: game, teams: teams, isOwner: isOwner) { await loadAll() }
+                        GameDetailView(game: game, teams: teams, isOwner: isOwner, seasonGames: games) { await loadAll() }
                     } label: {
                         GameRow(game: game, teams: teams)
                     }
@@ -176,6 +191,16 @@ struct LeagueDetailView: View {
         }
     }
 
+    /// Soonest not-yet-final game, optionally filtered to a team the viewer
+    /// cares about. Falls back to the most recent game if none are upcoming.
+    private func nextGame(for teamId: UUID?) -> Game? {
+        let pool = games.filter { g in
+            teamId == nil || g.homeTeamId == teamId || g.awayTeamId == teamId
+        }
+        let upcoming = pool.filter { $0.status == .scheduled }.sorted { $0.scheduledAt < $1.scheduledAt }
+        return upcoming.first
+    }
+
     // MARK: Data
 
     private func loadAll() async {
@@ -183,7 +208,7 @@ struct LeagueDetailView: View {
         do {
             let seasons = try await leagueService.fetchSeasons(leagueId: league.id)
             guard let current = seasons.first else {
-                season = nil; teams = []; games = []; rosterCount = 0
+                season = nil; teams = []; games = []; rosterCount = 0; myTeam = nil
                 isLoading = false
                 return
             }
@@ -193,11 +218,25 @@ struct LeagueDetailView: View {
             teams = try await t
             games = try await g
             rosterCount = try await countPlayers(teams: teams)
+            await resolveMyTeam()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    // A viewer is a "player" in this league if they hold a roster spot on one of
+    // its teams — independent of whether they also own the league.
+    private func resolveMyTeam() async {
+        guard let userId = auth.profile?.id else { myTeam = nil; return }
+        do {
+            let spots = try await rosterService.fetchLinkedRosterSpots(playerId: userId)
+            let teamIds = Set(spots.map(\.teamId))
+            myTeam = teams.first { teamIds.contains($0.id) }
+        } catch {
+            myTeam = nil
+        }
     }
 
     private func countPlayers(teams: [Team]) async throws -> Int {
@@ -385,6 +424,76 @@ struct TeamCrest: View {
                 .font(.display(16))
                 .foregroundStyle(Brand.orange)
         }
+    }
+}
+
+// MARK: - Viewer-personal cards
+
+/// Shown only when the viewer holds a roster spot in this league — their own
+/// team, record, and next game. A pure commissioner (no roster spot) never
+/// sees this; they see the league-wide next game instead.
+private struct YourTeamCard: View {
+    let team: Team
+    let record: String?
+    let nextGame: Game?
+    let teams: [Team]
+
+    private func name(_ id: UUID) -> String { teams.first { $0.id == id }?.name ?? "TBD" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                TeamCrest(name: team.name)
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionHeaderText("Your team")
+                    Text(team.name).font(.display(22))
+                }
+                Spacer()
+                if let record {
+                    VStack(spacing: 0) {
+                        Text(record).font(.display(22)).foregroundStyle(Brand.orange)
+                        Text("W–L").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let nextGame {
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("Next: ")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    + Text(nextGame.scheduledAt, format: .dateTime.month().day())
+                        .font(.system(size: 13, weight: .bold))
+                    + Text(" vs \(nextGame.homeTeamId == team.id ? name(nextGame.awayTeamId) : name(nextGame.homeTeamId))")
+                        .font(.system(size: 13, weight: .bold))
+                }
+            }
+        }
+        .brandCard(padding: 16)
+    }
+}
+
+private struct NextGameCard: View {
+    let game: Game
+    let teams: [Team]
+    private func name(_ id: UUID) -> String { teams.first { $0.id == id }?.name ?? "TBD" }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar")
+                .font(.system(size: 16)).foregroundStyle(Brand.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                SectionHeaderText("Next game")
+                Text("\(name(game.awayTeamId)) @ \(name(game.homeTeamId))")
+                    .font(.system(size: 15, weight: .bold))
+            }
+            Spacer()
+            Text(game.scheduledAt, format: .dateTime.month().day())
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.secondary)
+        }
+        .brandCard(padding: 16)
     }
 }
 

@@ -144,15 +144,14 @@ final class LeagueService: ObservableObject {
             .value
     }
 
-    /// Number of roster spots on a team — used for the league hero's player count.
+    /// Number of roster spots on a team, without pulling the rows.
     func fetchRosterCount(teamId: UUID) async throws -> Int {
-        let spots: [RosterSpot] = try await client
+        let response = try await client
             .from("roster_spots")
-            .select()
+            .select("id", head: true, count: .exact)
             .eq("team_id", value: teamId)
             .execute()
-            .value
-        return spots.count
+        return response.count ?? 0
     }
 
     func createTeam(name: String, seasonId: UUID) async throws -> Team {

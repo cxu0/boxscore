@@ -169,6 +169,18 @@ struct BoxScoreStat: Codable, Identifiable, Equatable {
             fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, pf: 0
         )
     }
+
+    /// Running team totals, summed across a roster's box score lines.
+    struct Totals {
+        var pts = 0, reb = 0, ast = 0, stl = 0, blk = 0, turnovers = 0
+        var fgm = 0, fga = 0, tpm = 0, tpa = 0, ftm = 0, fta = 0, pf = 0
+
+        mutating func add(_ l: BoxScoreStat) {
+            pts += l.pts; reb += l.reb; ast += l.ast; stl += l.stl; blk += l.blk
+            turnovers += l.turnovers; fgm += l.fgm; fga += l.fga; tpm += l.tpm
+            tpa += l.tpa; ftm += l.ftm; fta += l.fta; pf += l.pf
+        }
+    }
 }
 
 /// A team a player belongs to, with season/league names, decoded from a
