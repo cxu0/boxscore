@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LogInView: View {
     @EnvironmentObject private var auth: AuthService
+    @Environment(\.dismiss) private var dismiss
 
     @State private var email = ""
     @State private var password = ""
@@ -54,6 +55,7 @@ struct LogInView: View {
         errorMessage = nil
         do {
             try await auth.signIn(email: email, password: password)
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

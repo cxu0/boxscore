@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SignUpView: View {
     @EnvironmentObject private var auth: AuthService
+    @Environment(\.dismiss) private var dismiss
 
     @State private var displayName = ""
     @State private var email = ""
@@ -67,6 +68,9 @@ struct SignUpView: View {
         errorMessage = nil
         do {
             try await auth.signUp(email: email, password: password, displayName: displayName)
+            // Pop this screen so the app drops straight into the signed-in state
+            // instead of leaving the completed form on screen.
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

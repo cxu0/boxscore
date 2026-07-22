@@ -423,6 +423,7 @@ private struct ScoreEntrySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var homeText: String
     @State private var awayText: String
+    @State private var editing: GameDetailView.Side = .away
 
     init(homeName: String, awayName: String, initialHome: Int?, initialAway: Int?, onSave: @escaping (Int, Int) async -> Void) {
         self.homeName = homeName
@@ -434,36 +435,130 @@ private struct ScoreEntrySheet: View {
         _awayText = State(initialValue: initialAway.map(String.init) ?? "")
     }
 
+    private var awayVal: Int { Int(awayText) ?? 0 }
+    private var homeVal: Int { Int(homeText) ?? 0 }
+    private var canSave: Bool { !homeText.isEmpty && !awayText.isEmpty }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Final Score") {
-                    scoreField(awayName, $awayText)
-                    scoreField(homeName, $homeText)
-                }
+            VStack(spacing: 18) {
+                scoreboard
+                Text("Tap a team, then type its score")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                keypad
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
             .navigationTitle("Final Score")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        Task { await onSave(Int(homeText) ?? 0, Int(awayText) ?? 0); dismiss() }
+                        Task { await onSave(homeVal, awayVal); dismiss() }
                     }
-                    .disabled(homeText.isEmpty || awayText.isEmpty)
+                    .fontWeight(.bold)
+                    .disabled(!canSave)
                 }
             }
         }
     }
 
-    private func scoreField(_ name: String, _ text: Binding<String>) -> some View {
-        HStack {
-            Text(name)
-            Spacer()
-            TextField("0", text: text)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 70)
+    // MARK: Scoreboard
+
+    private var scoreboard: some View {
+        HStack(alignment: .center, spacing: 8) {
+            teamColumn(side: .away, name: awayName, text: awayText, value: awayVal, opponent: homeVal)
+            Text("FINAL")
+                .font(.system(size: 11, weight: .black).width(.condensed))
+                .foregroundStyle(.white.opacity(0.4))
+                .frame(width: 48)
+            teamColumn(side: .home, name: homeName, text: homeText, value: homeVal, opponent: awayVal)
         }
+        .padding(.vertical, 22)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func teamColumn(side: GameDetailView.Side, name: String, text: String, value: Int, opponent: Int) -> some View {
+        let isEditing = editing == side
+        let isLeading = value > opponent && !text.isEmpty
+        return Button {
+            editing = side
+        } label: {
+            VStack(spacing: 8) {
+                TeamCrest(name: name)
+                Text(name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(text.isEmpty ? "0" : text)
+                    .font(.display(52))
+                    .monospacedDigit()
+                    .foregroundStyle(isLeading ? Brand.orange : .white.opacity(text.isEmpty ? 0.35 : 0.9))
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(isEditing ? Brand.orange : .clear)
+                            .frame(height: 3)
+                            .offset(y: 6)
+                    }
+                Text(isEditing ? "EDITING" : " ")
+                    .font(.system(size: 9, weight: .black).width(.condensed))
+                    .kerning(1.5)
+                    .foregroundStyle(Brand.orange)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Keypad
+
+    private let keys: [String] = ["1","2","3","4","5","6","7","8","9","clear","0","⌫"]
+
+    private var keypad: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            ForEach(keys, id: \.self) { key in
+                Button {
+                    press(key)
+                } label: {
+                    Group {
+                        if key == "⌫" {
+                            Image(systemName: "delete.left")
+                        } else if key == "clear" {
+                            Text("clear").font(.system(size: 15, weight: .medium))
+                        } else {
+                            Text(key).font(.display(26))
+                        }
+                    }
+                    .foregroundStyle(key == "clear" || key == "⌫" ? Color.secondary : .primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(Brand.card, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func press(_ key: String) {
+        switch key {
+        case "clear": setEditing("")
+        case "⌫": setEditing(String(currentText().dropLast()))
+        default:
+            var cur = currentText()
+            guard cur.count < 3 else { return }
+            if cur == "0" { cur = "" }
+            setEditing(cur + key)
+        }
+    }
+
+    private func currentText() -> String { editing == .away ? awayText : homeText }
+    private func setEditing(_ value: String) {
+        if editing == .away { awayText = value } else { homeText = value }
     }
 }
