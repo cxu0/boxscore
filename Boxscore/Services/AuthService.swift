@@ -51,6 +51,16 @@ final class AuthService: ObservableObject {
         await loadProfile(userId: userId)
     }
 
+    func updateDisplayName(_ name: String) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("profiles")
+            .update(["display_name": name])
+            .eq("id", value: userId)
+            .execute()
+        await loadProfile(userId: userId)
+    }
+
     func signOut() async throws {
         try await client.auth.signOut()
         profile = nil

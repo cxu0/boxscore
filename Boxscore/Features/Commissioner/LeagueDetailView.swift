@@ -9,7 +9,7 @@ struct LeagueDetailView: View {
     @StateObject private var leagueService = LeagueService()
     @StateObject private var rosterService = RosterService()
 
-    @State private var currentName: String
+    @State private var currentLeague: League
     @State private var season: Season?
     @State private var teams: [Team] = []
     @State private var games: [Game] = []
@@ -20,8 +20,8 @@ struct LeagueDetailView: View {
     @State private var errorMessage: String?
     @State private var isShowingNewTeam = false
     @State private var isShowingNewGame = false
-    @State private var isRenamingLeague = false
-    @State private var renameLeagueText = ""
+    @State private var isEditingLeague = false
+    @State private var isEditingSeason = false
     @State private var isConfirmingDeleteLeague = false
 
     enum Tab: String, CaseIterable { case standings, schedule, rosters }
@@ -29,7 +29,7 @@ struct LeagueDetailView: View {
     init(league: League, onChange: (() async -> Void)? = nil) {
         self.league = league
         self.onChange = onChange
-        _currentName = State(initialValue: league.name)
+        _currentLeague = State(initialValue: league)
     }
 
     private var isOwner: Bool { auth.profile?.id == league.ownerId }
@@ -37,7 +37,7 @@ struct LeagueDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                LeagueHero(name: currentName, league: league, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
+                LeagueHero(league: currentLeague, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
 
                 VStack(spacing: 16) {
                     if let myTeam {
@@ -54,7 +54,7 @@ struct LeagueDetailView: View {
                     }
 
                     if isOwner {
-                        JoinCodeCard(league: league)
+                        JoinCodeCard(league: currentLeague)
                     }
 
                     Picker("View", selection: $tab) {
@@ -89,9 +89,11 @@ struct LeagueDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
-                            renameLeagueText = currentName
-                            isRenamingLeague = true
-                        } label: { Label("Rename League", systemImage: "pencil") }
+                            isEditingLeague = true
+                        } label: { Label("Edit League", systemImage: "pencil") }
+                        Button {
+                            isEditingSeason = true
+                        } label: { Label("Edit Season", systemImage: "calendar") }
                         Button(role: .destructive) {
                             isConfirmingDeleteLeague = true
                         } label: { Label("Delete League", systemImage: "trash") }
@@ -101,10 +103,17 @@ struct LeagueDetailView: View {
                 }
             }
         }
-        .alert("Rename league", isPresented: $isRenamingLeague) {
-            TextField("League name", text: $renameLeagueText)
-            Button("Save") { Task { await renameLeague() } }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $isEditingLeague) {
+            EditLeagueSheet(league: currentLeague) { name, isPublic, format in
+                await editLeague(name: name, isPublic: isPublic, format: format)
+            }
+        }
+        .sheet(isPresented: $isEditingSeason) {
+            if let season {
+                EditSeasonSheet(season: season) { name, start, end in
+                    await editSeason(name: name, start: start, end: end)
+                }
+            }
         }
         .confirmationDialog("Delete this league?", isPresented: $isConfirmingDeleteLeague, titleVisibility: .visible) {
             Button("Delete League", role: .destructive) { Task { await deleteLeague() } }
@@ -266,13 +275,23 @@ struct LeagueDetailView: View {
         isLoading = false
     }
 
-    private func renameLeague() async {
-        let name = renameLeagueText.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
+    private func editLeague(name: String, isPublic: Bool, format: LeagueFormat) async {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
         do {
-            try await leagueService.renameLeague(id: league.id, name: name)
-            currentName = name
+            currentLeague = try await leagueService.updateLeague(id: league.id, name: trimmed, isPublic: isPublic, format: format)
             await onChange?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func editSeason(name: String, start: Date?, end: Date?) async {
+        guard let season else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        do {
+            self.season = try await leagueService.updateSeason(id: season.id, name: trimmed, startDate: start, endDate: end)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -334,7 +353,6 @@ struct LeagueDetailView: View {
 // MARK: - Hero
 
 private struct LeagueHero: View {
-    let name: String
     let league: League
     let season: Season?
     let teamCount: Int
@@ -369,7 +387,7 @@ private struct LeagueHero: View {
                     .font(.system(size: 12, weight: .black).width(.condensed))
                     .kerning(1.5)
                     .foregroundStyle(.white.opacity(0.6))
-                Text(name)
+                Text(league.name)
                     .font(.display(38))
                     .foregroundStyle(.white)
                     .lineLimit(2)
@@ -643,6 +661,106 @@ private struct NewGameSheet: View {
                         Task { await onCreate(homeTeamId, awayTeamId, date); dismiss() }
                     }
                     .disabled(homeTeamId == nil || awayTeamId == nil || homeTeamId == awayTeamId)
+                }
+            }
+        }
+    }
+}
+
+private struct EditLeagueSheet: View {
+    let league: League
+    let onSave: (String, Bool, LeagueFormat) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var isPublic: Bool
+    @State private var format: LeagueFormat
+
+    init(league: League, onSave: @escaping (String, Bool, LeagueFormat) async -> Void) {
+        self.league = league
+        self.onSave = onSave
+        _name = State(initialValue: league.name)
+        _isPublic = State(initialValue: league.isPublic)
+        _format = State(initialValue: league.format)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("League name", text: $name)
+                }
+                Section("Format") {
+                    Picker("Format", selection: $format) {
+                        ForEach(LeagueFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section {
+                    Toggle("Public league", isOn: $isPublic)
+                } footer: {
+                    Text("Public leagues can be discovered by players near you.")
+                }
+            }
+            .navigationTitle("Edit League")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await onSave(name, isPublic, format); dismiss() } }
+                        .fontWeight(.bold)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+private struct EditSeasonSheet: View {
+    let season: Season
+    let onSave: (String, Date?, Date?) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var hasDates: Bool
+    @State private var start: Date
+    @State private var end: Date
+
+    init(season: Season, onSave: @escaping (String, Date?, Date?) async -> Void) {
+        self.season = season
+        self.onSave = onSave
+        _name = State(initialValue: season.name)
+        _hasDates = State(initialValue: season.startDate != nil || season.endDate != nil)
+        _start = State(initialValue: season.startDate ?? Date())
+        _end = State(initialValue: season.endDate ?? Date().addingTimeInterval(60 * 60 * 24 * 90))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("Season name", text: $name)
+                }
+                Section {
+                    Toggle("Set season dates", isOn: $hasDates)
+                    if hasDates {
+                        DatePicker("Start", selection: $start, displayedComponents: .date)
+                        DatePicker("End", selection: $end, displayedComponents: .date)
+                    }
+                } footer: {
+                    Text("Dates drive the “in season” badge on the league page.")
+                }
+            }
+            .navigationTitle("Edit Season")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await onSave(name, hasDates ? start : nil, hasDates ? end : nil); dismiss() }
+                    }
+                    .fontWeight(.bold)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }

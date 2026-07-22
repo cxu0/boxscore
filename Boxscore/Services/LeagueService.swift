@@ -65,8 +65,21 @@ final class LeagueService: ObservableObject {
     /// having to think about "seasons" on day one.
     /// Creates the league, its first season, and any teams the organizer added
     /// during setup — one call so a brand-new league is ready to share.
-    func renameLeague(id: UUID, name: String) async throws {
-        try await client.from("leagues").update(["name": name]).eq("id", value: id).execute()
+    /// Edits a league's name, visibility, and format in one update.
+    func updateLeague(id: UUID, name: String, isPublic: Bool, format: LeagueFormat) async throws -> League {
+        struct Update: Encodable {
+            let name: String
+            let is_public: Bool
+            let format: String
+        }
+        return try await client
+            .from("leagues")
+            .update(Update(name: name, is_public: isPublic, format: format.rawValue))
+            .eq("id", value: id)
+            .select()
+            .single()
+            .execute()
+            .value
     }
 
     func deleteLeague(id: UUID) async throws {
@@ -134,6 +147,22 @@ final class LeagueService: ObservableObject {
         return try await client
             .from("seasons")
             .insert(NewSeason(league_id: leagueId.uuidString, name: name, start_date: startDate, end_date: endDate))
+            .select()
+            .single()
+            .execute()
+            .value
+    }
+
+    func updateSeason(id: UUID, name: String, startDate: Date?, endDate: Date?) async throws -> Season {
+        struct Update: Encodable {
+            let name: String
+            let start_date: Date?
+            let end_date: Date?
+        }
+        return try await client
+            .from("seasons")
+            .update(Update(name: name, start_date: startDate, end_date: endDate))
+            .eq("id", value: id)
             .select()
             .single()
             .execute()
