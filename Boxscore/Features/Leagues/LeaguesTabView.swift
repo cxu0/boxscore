@@ -10,14 +10,24 @@ struct LeaguesTabView: View {
     @State private var isShowingJoin = false
     @State private var isShowingSignIn = false
     @State private var searchText = ""
+    @State private var discovered: [League] = []
+    @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>?
     // True while the guest opened the sign-in sheet specifically to join, so we
     // can bounce them straight into the join flow once they're signed in.
     @State private var joinAfterSignIn = false
 
+    private var trimmedQuery: String { searchText.trimmingCharacters(in: .whitespaces) }
+
     private var filteredLeagues: [MyLeague] {
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return myLeagues }
-        return myLeagues.filter { $0.league.name.localizedCaseInsensitiveContains(query) }
+        guard !trimmedQuery.isEmpty else { return myLeagues }
+        return myLeagues.filter { $0.league.name.localizedCaseInsensitiveContains(trimmedQuery) }
+    }
+
+    // Public search results, minus leagues the user is already in (shown above).
+    private var discoveredResults: [League] {
+        let mine = Set(myLeagues.map(\.id))
+        return discovered.filter { !mine.contains($0.id) }
     }
 
     var body: some View {
@@ -42,27 +52,8 @@ struct LeaguesTabView: View {
                         guestState
                     } else if isLoading {
                         LoadingView().padding(.top, 40)
-                    } else if myLeagues.isEmpty {
-                        emptyState
                     } else {
-                        SearchField(text: $searchText, placeholder: "Search leagues...")
-                        SectionHeaderText("My leagues")
-                        if filteredLeagues.isEmpty {
-                            Text("No leagues match \u{201c}\(searchText)\u{201d}.")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .brandCard()
-                        } else {
-                            ForEach(filteredLeagues) { entry in
-                                NavigationLink {
-                                    LeagueDetailView(league: entry.league, onChange: { await loadLeagues() })
-                                } label: {
-                                    LeagueCard(entry: entry)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                        signedInContent
                     }
 
                     if let errorMessage {
@@ -100,7 +91,74 @@ struct LeaguesTabView: View {
                 }
                 Task { await loadLeagues() }
             }
+            .onChange(of: searchText) { _, _ in scheduleSearch() }
             .task { if profile != nil { await loadLeagues() } }
+        }
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let query = trimmedQuery
+        guard !query.isEmpty else {
+            discovered = []
+            isSearching = false
+            return
+        }
+        isSearching = true
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            do {
+                let results = try await leagueService.searchPublicLeagues(query: query)
+                guard !Task.isCancelled else { return }
+                discovered = results
+            } catch {
+                discovered = []
+            }
+            isSearching = false
+        }
+    }
+
+    @ViewBuilder
+    private var signedInContent: some View {
+        SearchField(text: $searchText, placeholder: "Search leagues...")
+
+        // My leagues (or a prompt when there are none and no active search).
+        if !filteredLeagues.isEmpty {
+            SectionHeaderText("My leagues")
+            ForEach(filteredLeagues) { entry in
+                NavigationLink {
+                    LeagueDetailView(league: entry.league, onChange: { await loadLeagues() })
+                } label: {
+                    LeagueCard(entry: entry)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if trimmedQuery.isEmpty {
+            emptyState
+        }
+
+        // Discover public leagues — browse anyone's league read-only, no code needed.
+        if !trimmedQuery.isEmpty {
+            SectionHeaderText("Discover public leagues")
+            if isSearching {
+                HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 12)
+            } else if discoveredResults.isEmpty {
+                Text("No public leagues match \u{201c}\(trimmedQuery)\u{201d}. Private leagues stay code-only.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .brandCard()
+            } else {
+                ForEach(discoveredResults) { league in
+                    NavigationLink {
+                        LeagueDetailView(league: league)
+                    } label: {
+                        DiscoverCard(league: league)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 
@@ -187,6 +245,37 @@ private struct LeagueCard: View {
                     .foregroundStyle(.tertiary)
             }
             Text(entry.league.name)
+                .font(.display(24))
+                .foregroundStyle(.primary)
+        }
+        .brandCard()
+    }
+}
+
+/// A public league found via search — browse-only, so it's badged "public"
+/// rather than showing a personal relationship.
+private struct DiscoverCard: View {
+    let league: League
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+                Text("PUBLIC")
+                    .font(.system(size: 10, weight: .black).width(.condensed))
+                    .kerning(1.2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(league.format.label)
+                    .font(.system(size: 10, weight: .black).width(.condensed))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            Text(league.name)
                 .font(.display(24))
                 .foregroundStyle(.primary)
         }

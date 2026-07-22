@@ -50,6 +50,22 @@ final class LeagueService: ObservableObject {
         return result.sorted { ($0.league.createdAt ?? .distantPast) > ($1.league.createdAt ?? .distantPast) }
     }
 
+    /// Public leagues matching a name search — the browse/discover path. Private
+    /// leagues stay code-only, so only `is_public` leagues surface here.
+    func searchPublicLeagues(query: String) async throws -> [League] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        return try await client
+            .from("leagues")
+            .select()
+            .eq("is_public", value: true)
+            .ilike("name", pattern: "%\(trimmed)%")
+            .order("name")
+            .limit(25)
+            .execute()
+            .value
+    }
+
     func findLeague(byJoinCode code: String) async throws -> League {
         try await client
             .from("leagues")
