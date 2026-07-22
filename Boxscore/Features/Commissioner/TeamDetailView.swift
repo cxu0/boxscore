@@ -3,14 +3,34 @@ import SwiftUI
 struct TeamDetailView: View {
     let team: Team
     let isOwner: Bool
+    var onChange: (() async -> Void)? = nil
 
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var rosterService = RosterService()
+    @StateObject private var leagueService = LeagueService()
+
+    @State private var teamName: String
     @State private var roster: [RosterSpot] = []
     @State private var pendingRequests: [ClaimRequest] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isShowingAddPlayer = false
     @State private var claimedSpotIds: Set<UUID> = []
+
+    // Edit / fix state
+    @State private var isRenamingTeam = false
+    @State private var renameTeamText = ""
+    @State private var isConfirmingDeleteTeam = false
+    @State private var spotRenaming: RosterSpot?
+    @State private var renameSpotText = ""
+    @State private var spotPendingDelete: RosterSpot?
+
+    init(team: Team, isOwner: Bool, onChange: (() async -> Void)? = nil) {
+        self.team = team
+        self.isOwner = isOwner
+        self.onChange = onChange
+        _teamName = State(initialValue: team.name)
+    }
 
     var body: some View {
         Group {
@@ -43,6 +63,18 @@ struct TeamDetailView: View {
                                 hasClaimed: claimedSpotIds.contains(spot.id),
                                 onClaim: { await claim(spot) }
                             )
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if isOwner {
+                                    Button(role: .destructive) {
+                                        spotPendingDelete = spot
+                                    } label: { Label("Remove", systemImage: "trash") }
+                                    Button {
+                                        renameSpotText = spot.displayName
+                                        spotRenaming = spot
+                                    } label: { Label("Rename", systemImage: "pencil") }
+                                    .tint(.blue)
+                                }
+                            }
                         }
                     }
                     if let errorMessage {
@@ -51,14 +83,23 @@ struct TeamDetailView: View {
                 }
             }
         }
-        .navigationTitle(team.name)
+        .navigationTitle(teamName)
         .toolbar {
             if isOwner {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isShowingAddPlayer = true
+                    Menu {
+                        Button {
+                            isShowingAddPlayer = true
+                        } label: { Label("Add Player", systemImage: "person.badge.plus") }
+                        Button {
+                            renameTeamText = teamName
+                            isRenamingTeam = true
+                        } label: { Label("Rename Team", systemImage: "pencil") }
+                        Button(role: .destructive) {
+                            isConfirmingDeleteTeam = true
+                        } label: { Label("Delete Team", systemImage: "trash") }
                     } label: {
-                        Image(systemName: "plus")
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
@@ -66,9 +107,37 @@ struct TeamDetailView: View {
         .sheet(isPresented: $isShowingAddPlayer) {
             NewRosterSpotSheet { name in await addPlayer(name: name) }
         }
+        .alert("Rename team", isPresented: $isRenamingTeam) {
+            TextField("Team name", text: $renameTeamText)
+            Button("Save") { Task { await renameTeam() } }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Rename player", isPresented: Binding(get: { spotRenaming != nil }, set: { if !$0 { spotRenaming = nil } })) {
+            TextField("Player name", text: $renameSpotText)
+            Button("Save") { Task { await renameSpot() } }
+            Button("Cancel", role: .cancel) { spotRenaming = nil }
+        }
+        .confirmationDialog("Delete this team?", isPresented: $isConfirmingDeleteTeam, titleVisibility: .visible) {
+            Button("Delete Team", role: .destructive) { Task { await deleteTeam() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the team, its roster, and all stats recorded for it.")
+        }
+        .confirmationDialog(
+            "Remove this player?",
+            isPresented: Binding(get: { spotPendingDelete != nil }, set: { if !$0 { spotPendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Remove Player", role: .destructive) { Task { await deleteSpot() } }
+            Button("Cancel", role: .cancel) { spotPendingDelete = nil }
+        } message: {
+            Text("This removes the roster spot and any stats recorded against it.")
+        }
         .task { await loadAll() }
         .refreshable { await loadAll() }
     }
+
+    // MARK: Data
 
     private func loadAll() async {
         isLoading = true
@@ -87,6 +156,54 @@ struct TeamDetailView: View {
         do {
             let spot = try await rosterService.addRosterSpot(teamId: team.id, displayName: name)
             roster.append(spot)
+            await onChange?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func renameTeam() async {
+        let name = renameTeamText.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        do {
+            try await leagueService.renameTeam(id: team.id, name: name)
+            teamName = name
+            await onChange?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteTeam() async {
+        do {
+            try await leagueService.deleteTeam(id: team.id)
+            await onChange?()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func renameSpot() async {
+        guard let spot = spotRenaming else { return }
+        let name = renameSpotText.trimmingCharacters(in: .whitespaces)
+        spotRenaming = nil
+        guard !name.isEmpty else { return }
+        do {
+            try await rosterService.renameRosterSpot(id: spot.id, displayName: name)
+            await loadAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteSpot() async {
+        guard let spot = spotPendingDelete else { return }
+        spotPendingDelete = nil
+        do {
+            try await rosterService.deleteRosterSpot(id: spot.id)
+            roster.removeAll { $0.id == spot.id }
+            await onChange?()
         } catch {
             errorMessage = error.localizedDescription
         }

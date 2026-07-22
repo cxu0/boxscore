@@ -29,6 +29,14 @@ final class RosterService: ObservableObject {
             .value
     }
 
+    func renameRosterSpot(id: UUID, displayName: String) async throws {
+        try await client.from("roster_spots").update(["display_name": displayName]).eq("id", value: id).execute()
+    }
+
+    func deleteRosterSpot(id: UUID) async throws {
+        try await client.from("roster_spots").delete().eq("id", value: id).execute()
+    }
+
     /// Self-serve join via the league's one shareable code — the signed-in
     /// player adds themselves directly to a roster spot, no organizer
     /// involvement or approval needed.

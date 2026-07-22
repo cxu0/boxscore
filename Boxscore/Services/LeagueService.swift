@@ -65,6 +65,14 @@ final class LeagueService: ObservableObject {
     /// having to think about "seasons" on day one.
     /// Creates the league, its first season, and any teams the organizer added
     /// during setup — one call so a brand-new league is ready to share.
+    func renameLeague(id: UUID, name: String) async throws {
+        try await client.from("leagues").update(["name": name]).eq("id", value: id).execute()
+    }
+
+    func deleteLeague(id: UUID) async throws {
+        try await client.from("leagues").delete().eq("id", value: id).execute()
+    }
+
     func createLeague(
         name: String,
         isPublic: Bool,
@@ -164,6 +172,14 @@ final class LeagueService: ObservableObject {
             .value
     }
 
+    func renameTeam(id: UUID, name: String) async throws {
+        try await client.from("teams").update(["name": name]).eq("id", value: id).execute()
+    }
+
+    func deleteTeam(id: UUID) async throws {
+        try await client.from("teams").delete().eq("id", value: id).execute()
+    }
+
     // MARK: Games
 
     func fetchGames(seasonId: UUID) async throws -> [Game] {
@@ -195,6 +211,15 @@ final class LeagueService: ObservableObject {
             .single()
             .execute()
             .value
+    }
+
+    func rescheduleGame(id: UUID, date: Date) async throws {
+        struct Reschedule: Encodable { let scheduled_at: Date }
+        try await client.from("games").update(Reschedule(scheduled_at: date)).eq("id", value: id).execute()
+    }
+
+    func deleteGame(id: UUID) async throws {
+        try await client.from("games").delete().eq("id", value: id).execute()
     }
 
     /// Records the final score and flips the game to final in one call.

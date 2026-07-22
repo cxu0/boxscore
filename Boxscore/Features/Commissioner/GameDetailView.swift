@@ -7,6 +7,7 @@ struct GameDetailView: View {
     var seasonGames: [Game] = []
     var onResult: (() async -> Void)? = nil
 
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var rosterService = RosterService()
     @StateObject private var statService = StatService()
     @StateObject private var leagueService = LeagueService()
@@ -20,6 +21,9 @@ struct GameDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isShowingScoreEntry = false
+    @State private var isShowingReschedule = false
+    @State private var isConfirmingDelete = false
+    @State private var rescheduleDate = Date()
 
     enum Tab: String, CaseIterable { case news, boxScore, teamStats, video }
     enum Side { case away, home }
@@ -83,6 +87,23 @@ struct GameDetailView: View {
             .padding(.top, 8)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isOwner {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            rescheduleDate = currentGame.scheduledAt
+                            isShowingReschedule = true
+                        } label: { Label("Reschedule", systemImage: "calendar") }
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: { Label("Delete Game", systemImage: "trash") }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $isShowingScoreEntry) {
             ScoreEntrySheet(
                 homeName: homeTeam?.name ?? "Home",
@@ -90,6 +111,15 @@ struct GameDetailView: View {
                 initialHome: currentGame.homeScore,
                 initialAway: currentGame.awayScore
             ) { home, away in await saveResult(home: home, away: away) }
+        }
+        .sheet(isPresented: $isShowingReschedule) {
+            RescheduleSheet(date: $rescheduleDate) { newDate in await reschedule(to: newDate) }
+        }
+        .confirmationDialog("Delete this game?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
+            Button("Delete Game", role: .destructive) { Task { await deleteGame() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the game and every box score entered for it.")
         }
         .task { await loadData() }
     }
@@ -308,6 +338,49 @@ struct GameDetailView: View {
             await onResult?()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func reschedule(to date: Date) async {
+        do {
+            try await leagueService.rescheduleGame(id: currentGame.id, date: date)
+            currentGame.scheduledAt = date
+            await onResult?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteGame() async {
+        do {
+            try await leagueService.deleteGame(id: currentGame.id)
+            await onResult?()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RescheduleSheet: View {
+    @Binding var date: Date
+    let onSave: (Date) async -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                DatePicker("Date & time", selection: $date)
+                    .datePickerStyle(.graphical)
+            }
+            .navigationTitle("Reschedule")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await onSave(date); dismiss() } }.fontWeight(.bold)
+                }
+            }
         }
     }
 }

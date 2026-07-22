@@ -2,11 +2,14 @@ import SwiftUI
 
 struct LeagueDetailView: View {
     let league: League
+    var onChange: (() async -> Void)? = nil
 
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthService
     @StateObject private var leagueService = LeagueService()
     @StateObject private var rosterService = RosterService()
 
+    @State private var currentName: String
     @State private var season: Season?
     @State private var teams: [Team] = []
     @State private var games: [Game] = []
@@ -17,15 +20,24 @@ struct LeagueDetailView: View {
     @State private var errorMessage: String?
     @State private var isShowingNewTeam = false
     @State private var isShowingNewGame = false
+    @State private var isRenamingLeague = false
+    @State private var renameLeagueText = ""
+    @State private var isConfirmingDeleteLeague = false
 
     enum Tab: String, CaseIterable { case standings, schedule, rosters }
+
+    init(league: League, onChange: (() async -> Void)? = nil) {
+        self.league = league
+        self.onChange = onChange
+        _currentName = State(initialValue: league.name)
+    }
 
     private var isOwner: Bool { auth.profile?.id == league.ownerId }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                LeagueHero(league: league, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
+                LeagueHero(name: currentName, league: league, season: season, teamCount: teams.count, gameCount: games.count, playerCount: rosterCount)
 
                 VStack(spacing: 16) {
                     if let myTeam {
@@ -72,6 +84,34 @@ struct LeagueDetailView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            if isOwner {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            renameLeagueText = currentName
+                            isRenamingLeague = true
+                        } label: { Label("Rename League", systemImage: "pencil") }
+                        Button(role: .destructive) {
+                            isConfirmingDeleteLeague = true
+                        } label: { Label("Delete League", systemImage: "trash") }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
+        .alert("Rename league", isPresented: $isRenamingLeague) {
+            TextField("League name", text: $renameLeagueText)
+            Button("Save") { Task { await renameLeague() } }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Delete this league?", isPresented: $isConfirmingDeleteLeague, titleVisibility: .visible) {
+            Button("Delete League", role: .destructive) { Task { await deleteLeague() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the league and everything in it — seasons, teams, games, and stats.")
+        }
         .sheet(isPresented: $isShowingNewTeam) {
             NewTeamSheet { name in await createTeam(name: name) }
         }
@@ -171,7 +211,7 @@ struct LeagueDetailView: View {
             } else {
                 ForEach(teams) { team in
                     NavigationLink {
-                        TeamDetailView(team: team, isOwner: isOwner)
+                        TeamDetailView(team: team, isOwner: isOwner, onChange: { await loadAll() })
                     } label: {
                         HStack(spacing: 12) {
                             TeamCrest(name: team.name)
@@ -226,6 +266,28 @@ struct LeagueDetailView: View {
         isLoading = false
     }
 
+    private func renameLeague() async {
+        let name = renameLeagueText.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        do {
+            try await leagueService.renameLeague(id: league.id, name: name)
+            currentName = name
+            await onChange?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteLeague() async {
+        do {
+            try await leagueService.deleteLeague(id: league.id)
+            await onChange?()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // A viewer is a "player" in this league if they hold a roster spot on one of
     // its teams — independent of whether they also own the league.
     private func resolveMyTeam() async {
@@ -272,6 +334,7 @@ struct LeagueDetailView: View {
 // MARK: - Hero
 
 private struct LeagueHero: View {
+    let name: String
     let league: League
     let season: Season?
     let teamCount: Int
@@ -306,7 +369,7 @@ private struct LeagueHero: View {
                     .font(.system(size: 12, weight: .black).width(.condensed))
                     .kerning(1.5)
                     .foregroundStyle(.white.opacity(0.6))
-                Text(league.name)
+                Text(name)
                     .font(.display(38))
                     .foregroundStyle(.white)
                     .lineLimit(2)

@@ -56,7 +56,7 @@ struct LeaguesTabView: View {
                         } else {
                             ForEach(filteredLeagues) { entry in
                                 NavigationLink {
-                                    LeagueDetailView(league: entry.league)
+                                    LeagueDetailView(league: entry.league, onChange: { await loadLeagues() })
                                 } label: {
                                     LeagueCard(entry: entry)
                                 }
