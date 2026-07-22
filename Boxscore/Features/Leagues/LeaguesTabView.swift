@@ -9,9 +9,16 @@ struct LeaguesTabView: View {
     @State private var errorMessage: String?
     @State private var isShowingJoin = false
     @State private var isShowingSignIn = false
+    @State private var searchText = ""
     // True while the guest opened the sign-in sheet specifically to join, so we
     // can bounce them straight into the join flow once they're signed in.
     @State private var joinAfterSignIn = false
+
+    private var filteredLeagues: [MyLeague] {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return myLeagues }
+        return myLeagues.filter { $0.league.name.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,14 +45,23 @@ struct LeaguesTabView: View {
                     } else if myLeagues.isEmpty {
                         emptyState
                     } else {
+                        SearchField(text: $searchText, placeholder: "Search leagues...")
                         SectionHeaderText("My leagues")
-                        ForEach(myLeagues) { entry in
-                            NavigationLink {
-                                LeagueDetailView(league: entry.league)
-                            } label: {
-                                LeagueCard(entry: entry)
+                        if filteredLeagues.isEmpty {
+                            Text("No leagues match \u{201c}\(searchText)\u{201d}.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .brandCard()
+                        } else {
+                            ForEach(filteredLeagues) { entry in
+                                NavigationLink {
+                                    LeagueDetailView(league: entry.league)
+                                } label: {
+                                    LeagueCard(entry: entry)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 
