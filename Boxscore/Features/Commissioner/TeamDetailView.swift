@@ -15,7 +15,6 @@ struct TeamDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isShowingAddPlayer = false
-    @State private var claimedSpotIds: Set<UUID> = []
 
     // Edit / fix state
     @State private var isRenamingTeam = false
@@ -57,12 +56,11 @@ struct TeamDetailView: View {
                     }
                     Section {
                         ForEach(roster) { spot in
-                            RosterRow(
-                                spot: spot,
-                                isOwner: isOwner,
-                                hasClaimed: claimedSpotIds.contains(spot.id),
-                                onClaim: { await claim(spot) }
-                            )
+                            NavigationLink {
+                                PlayerProfileLoader(rosterSpot: spot)
+                            } label: {
+                                RosterRow(spot: spot)
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if isOwner {
                                     Button(role: .destructive) {
@@ -209,15 +207,6 @@ struct TeamDetailView: View {
         }
     }
 
-    private func claim(_ spot: RosterSpot) async {
-        do {
-            _ = try await rosterService.requestClaim(rosterSpotId: spot.id)
-            claimedSpotIds.insert(spot.id)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     private func approve(_ request: ClaimRequest) async {
         do {
             _ = try await rosterService.approveClaimRequest(id: request.id)
@@ -239,9 +228,6 @@ struct TeamDetailView: View {
 
 private struct RosterRow: View {
     let spot: RosterSpot
-    let isOwner: Bool
-    let hasClaimed: Bool
-    let onClaim: () async -> Void
 
     var body: some View {
         HStack {
@@ -250,18 +236,10 @@ private struct RosterRow: View {
             if spot.playerId != nil {
                 Image(systemName: "checkmark.seal.fill")
                     .foregroundStyle(.green)
-            } else if !isOwner {
-                if hasClaimed {
-                    Text("Request sent")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("That's me") {
-                        Task { await onClaim() }
-                    }
+            } else {
+                Text("Unclaimed")
                     .font(.caption)
-                    .buttonStyle(.bordered)
-                }
+                    .foregroundStyle(.secondary)
             }
         }
     }

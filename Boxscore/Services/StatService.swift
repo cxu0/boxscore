@@ -35,6 +35,31 @@ final class StatService: ObservableObject {
             .value
     }
 
+    /// Totals + games played for a single roster spot — used for a placeholder
+    /// player's profile, since their stats aren't aggregated by player id.
+    func fetchRosterSpotStats(rosterSpotId: UUID) async throws -> (totals: BoxScoreStat.Totals, gamesPlayed: Int) {
+        let lines: [BoxScoreStat] = try await client
+            .from("box_scores")
+            .select()
+            .eq("roster_spot_id", value: rosterSpotId)
+            .execute()
+            .value
+        var totals = BoxScoreStat.Totals()
+        for line in lines { totals.add(line) }
+        return (totals, lines.count)
+    }
+
+    /// All box scores for a set of games — used to build the league leaderboard.
+    func fetchBoxScores(gameIds: [UUID]) async throws -> [BoxScoreStat] {
+        guard !gameIds.isEmpty else { return [] }
+        return try await client
+            .from("box_scores")
+            .select()
+            .in("game_id", values: gameIds.map(\.uuidString))
+            .execute()
+            .value
+    }
+
     /// The player's most recent games with their line and the result, built
     /// from box scores joined to their game and the player's team. Opponent
     /// team names are resolved in a second lookup.

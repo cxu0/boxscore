@@ -51,6 +51,18 @@ final class AuthService: ObservableObject {
         await loadProfile(userId: userId)
     }
 
+    /// Reads any user's public profile by id — used to open another player's
+    /// read-only profile from a roster.
+    func fetchProfile(id: UUID) async throws -> Profile {
+        try await client
+            .from("profiles")
+            .select()
+            .eq("id", value: id)
+            .single()
+            .execute()
+            .value
+    }
+
     func updateDisplayName(_ name: String) async throws {
         let userId = try await client.auth.session.user.id
         try await client

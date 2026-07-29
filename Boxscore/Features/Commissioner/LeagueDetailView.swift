@@ -24,7 +24,7 @@ struct LeagueDetailView: View {
     @State private var isEditingSeason = false
     @State private var isConfirmingDeleteLeague = false
 
-    enum Tab: String, CaseIterable { case standings, schedule, rosters }
+    enum Tab: String, CaseIterable { case standings, schedule, rosters, stats }
 
     init(league: League, onChange: (() async -> Void)? = nil) {
         self.league = league
@@ -61,6 +61,7 @@ struct LeagueDetailView: View {
                         Text("Standings").tag(Tab.standings)
                         Text("Schedule").tag(Tab.schedule)
                         Text("Rosters").tag(Tab.rosters)
+                        Text("Stats").tag(Tab.stats)
                     }
                     .pickerStyle(.segmented)
 
@@ -71,6 +72,7 @@ struct LeagueDetailView: View {
                         case .standings: standingsView
                         case .schedule: scheduleView
                         case .rosters: rostersView
+                        case .stats: LeagueStatsView(teams: teams, games: games)
                         }
                     }
 

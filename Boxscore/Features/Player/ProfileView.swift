@@ -4,6 +4,8 @@ import UIKit
 
 struct ProfileView: View {
     let profile: Profile
+    /// When false, this is someone else's profile — read-only, no photo edit.
+    var isSelf: Bool = true
 
     @EnvironmentObject private var auth: AuthService
     @StateObject private var statService = StatService()
@@ -18,8 +20,8 @@ struct ProfileView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var isUploading = false
 
-    // Prefer the live auth profile so a freshly uploaded headshot appears at once.
-    private var current: Profile { auth.profile ?? profile }
+    // For self, prefer the live auth profile so a fresh headshot appears at once.
+    private var current: Profile { isSelf ? (auth.profile ?? profile) : profile }
 
     var body: some View {
         Group {
@@ -31,6 +33,7 @@ struct ProfileView: View {
                         ProfileHero(
                             profile: current,
                             subtitle: heroSubtitle,
+                            isSelf: isSelf,
                             pickerItem: $pickerItem,
                             isUploading: isUploading
                         )
@@ -166,9 +169,11 @@ struct ProfileView: View {
 
     private var emptyHint: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("No teams yet")
+            Text("No stats yet")
                 .font(.system(size: 16, weight: .bold))
-            Text("Join a team with your league's code from the Leagues tab, and your career starts here.")
+            Text(isSelf
+                 ? "Join a team with your league's code from the Leagues tab, and your career starts here."
+                 : "This player hasn't logged any games yet.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
@@ -211,6 +216,7 @@ struct ProfileView: View {
 private struct ProfileHero: View {
     let profile: Profile
     let subtitle: String
+    var isSelf: Bool = true
     @Binding var pickerItem: PhotosPickerItem?
     let isUploading: Bool
 
@@ -259,45 +265,54 @@ private struct ProfileHero: View {
         .clipped()
     }
 
+    @ViewBuilder
     private var headshot: some View {
-        PhotosPicker(selection: $pickerItem, matching: .images) {
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.1))
-                    .frame(width: 76, height: 76)
-                Circle()
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-                    .frame(width: 76, height: 76)
-
-                if let urlString = profile.avatarUrl, let url = URL(string: urlString) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        ProgressView().tint(.white)
+        if isSelf {
+            PhotosPicker(selection: $pickerItem, matching: .images) {
+                headshotCircle
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Brand.orange)
+                            .background(Circle().fill(.black))
                     }
-                    .frame(width: 76, height: 76)
-                    .clipShape(Circle())
-                } else {
-                    VStack(spacing: 4) {
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.8))
-                        Text("ADD")
-                            .font(.system(size: 8, weight: .black).width(.condensed))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                }
+            }
+        } else {
+            headshotCircle
+        }
+    }
 
-                if isUploading {
-                    Circle().fill(.black.opacity(0.4)).frame(width: 76, height: 76)
+    private var headshotCircle: some View {
+        ZStack {
+            Circle().fill(.white.opacity(0.1)).frame(width: 76, height: 76)
+            Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1).frame(width: 76, height: 76)
+
+            if let urlString = profile.avatarUrl, let url = URL(string: urlString) {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
                     ProgressView().tint(.white)
                 }
+                .frame(width: 76, height: 76)
+                .clipShape(Circle())
+            } else if isSelf {
+                VStack(spacing: 4) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white.opacity(0.8))
+                    Text("ADD")
+                        .font(.system(size: 8, weight: .black).width(.condensed))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            } else {
+                Text(initials)
+                    .font(.display(28))
+                    .foregroundStyle(.white.opacity(0.85))
             }
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "pencil.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(Brand.orange)
-                    .background(Circle().fill(.black))
+
+            if isUploading {
+                Circle().fill(.black.opacity(0.4)).frame(width: 76, height: 76)
+                ProgressView().tint(.white)
             }
         }
     }
