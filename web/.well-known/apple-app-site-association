@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["DT44QH4CUK.cooper.Boxscore"],
+        "components": [
+          { "/": "/join/*" },
+          { "/": "/keeper/*" },
+          { "/": "/league/*" }
+        ]
+      }
+    ]
+  }
+}

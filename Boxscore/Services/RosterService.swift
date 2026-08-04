@@ -52,6 +52,66 @@ final class RosterService: ObservableObject {
             .value
     }
 
+    /// Creates a brand-new team in the league and joins it in one step.
+    func createTeamAndJoin(leagueId: UUID, teamName: String, displayName: String) async throws -> RosterSpot {
+        try await client
+            .rpc("create_team_and_join", params: [
+                "p_league_id": leagueId.uuidString,
+                "p_team_name": teamName,
+                "p_display_name": displayName
+            ])
+            .single()
+            .execute()
+            .value
+    }
+
+    /// Instant join for a public, open-policy league (no code needed).
+    func joinLeaguePublic(leagueId: UUID, teamId: UUID, displayName: String) async throws -> RosterSpot {
+        try await client
+            .rpc("join_league_public", params: [
+                "p_league_id": leagueId.uuidString,
+                "p_team_id": teamId.uuidString,
+                "p_display_name": displayName
+            ])
+            .single()
+            .execute()
+            .value
+    }
+
+    /// Request to join a public, approval-policy league. `teamId` for an
+    /// existing team, or `newTeamName` to propose a new one.
+    func requestToJoin(leagueId: UUID, teamId: UUID?, newTeamName: String?, displayName: String) async throws -> JoinRequest {
+        struct Params: Encodable {
+            let p_league_id: String
+            let p_team_id: String?
+            let p_new_team_name: String?
+            let p_display_name: String
+        }
+        return try await client
+            .rpc("request_to_join", params: Params(
+                p_league_id: leagueId.uuidString,
+                p_team_id: teamId?.uuidString,
+                p_new_team_name: newTeamName,
+                p_display_name: displayName
+            ))
+            .single()
+            .execute()
+            .value
+    }
+
+    /// Whether the signed-in player already holds a roster spot in this league.
+    func isMember(leagueId: UUID, userId: UUID) async throws -> Bool {
+        struct Row: Decodable { let id: UUID }
+        let rows: [Row] = try await client
+            .from("roster_spots")
+            .select("id, teams!inner(seasons!inner(league_id))")
+            .eq("player_id", value: userId)
+            .eq("teams.seasons.league_id", value: leagueId)
+            .execute()
+            .value
+        return !rows.isEmpty
+    }
+
     /// A player asking to take over a placeholder roster spot the organizer
     /// already entered stats against. Pending until the organizer approves.
     func requestClaim(rosterSpotId: UUID) async throws -> ClaimRequest {

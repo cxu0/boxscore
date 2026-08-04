@@ -2,6 +2,9 @@ import SwiftUI
 
 struct LeagueDetailView: View {
     let league: League
+    /// Set when the viewer arrived by entering this league's join code — it
+    /// authorizes joining a private league's roster.
+    var viaJoinCode: String? = nil
     var onChange: (() async -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
@@ -15,24 +18,42 @@ struct LeagueDetailView: View {
     @State private var games: [Game] = []
     @State private var myTeam: Team?
     @State private var rosterCount = 0
+    @State private var isStaff = false
+    @State private var joinRequests: [JoinRequest] = []
+    @State private var hasPendingRequest = false
     @State private var tab: Tab = .standings
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isShowingNewTeam = false
     @State private var isShowingNewGame = false
+    @State private var isShowingJoinTeam = false
+    @State private var isShowingStaff = false
     @State private var isEditingLeague = false
     @State private var isEditingSeason = false
     @State private var isConfirmingDeleteLeague = false
 
     enum Tab: String, CaseIterable { case standings, schedule, rosters, stats }
 
-    init(league: League, onChange: (() async -> Void)? = nil) {
+    init(league: League, viaJoinCode: String? = nil, onChange: (() async -> Void)? = nil) {
         self.league = league
+        self.viaJoinCode = viaJoinCode
         self.onChange = onChange
         _currentLeague = State(initialValue: league)
     }
 
     private var isOwner: Bool { auth.profile?.id == league.ownerId }
+    private var isMember: Bool { myTeam != nil }
+    private var canKeepStats: Bool { isOwner || isStaff }
+    /// A signed-in viewer who isn't the owner and isn't on a roster.
+    private var isVisitor: Bool { auth.profile != nil && !isOwner && !isMember }
+
+    /// How this viewer would join, given the league's visibility/policy and
+    /// whether they arrived with the code. nil = can't join from here.
+    private var joinMode: JoinMode? {
+        if let code = viaJoinCode { return .code(code) }
+        guard currentLeague.isPublic else { return nil }
+        return currentLeague.joinPolicy == .approval ? .publicApproval : .publicOpen
+    }
 
     var body: some View {
         ScrollView {
@@ -55,6 +76,20 @@ struct LeagueDetailView: View {
 
                     if isOwner {
                         JoinCodeCard(league: currentLeague)
+                    }
+
+                    if isVisitor, let mode = joinMode {
+                        JoinCTA(mode: mode, hasPendingRequest: hasPendingRequest) {
+                            isShowingJoinTeam = true
+                        }
+                    }
+
+                    if isOwner && !joinRequests.isEmpty {
+                        JoinRequestsCard(
+                            requests: joinRequests,
+                            onApprove: { await approveJoin($0) },
+                            onDeny: { await denyJoin($0) }
+                        )
                     }
 
                     Picker("View", selection: $tab) {
@@ -96,6 +131,9 @@ struct LeagueDetailView: View {
                         Button {
                             isEditingSeason = true
                         } label: { Label("Edit Season", systemImage: "calendar") }
+                        Button {
+                            isShowingStaff = true
+                        } label: { Label("Stat Keepers", systemImage: "person.2.badge.gearshape") }
                         Button(role: .destructive) {
                             isConfirmingDeleteLeague = true
                         } label: { Label("Delete League", systemImage: "trash") }
@@ -106,9 +144,20 @@ struct LeagueDetailView: View {
             }
         }
         .sheet(isPresented: $isEditingLeague) {
-            EditLeagueSheet(league: currentLeague) { name, isPublic, format in
-                await editLeague(name: name, isPublic: isPublic, format: format)
+            EditLeagueSheet(league: currentLeague) { draft in
+                await editLeague(draft)
             }
+        }
+        .sheet(isPresented: $isShowingJoinTeam) {
+            if let mode = joinMode {
+                JoinTeamSheet(league: currentLeague, mode: mode, teams: teams) {
+                    await loadAll()
+                    hasPendingRequest = (mode == .publicApproval)
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingStaff) {
+            StatKeepersView(league: currentLeague)
         }
         .sheet(isPresented: $isEditingSeason) {
             if let season {
@@ -191,7 +240,7 @@ struct LeagueDetailView: View {
             } else {
                 ForEach(games) { game in
                     NavigationLink {
-                        GameDetailView(game: game, teams: teams, isOwner: isOwner, seasonGames: games) { await loadAll() }
+                        GameDetailView(game: game, teams: teams, isOwner: isOwner, canKeepStats: canKeepStats, seasonGames: games) { await loadAll() }
                     } label: {
                         GameRow(game: game, teams: teams)
                     }
@@ -270,6 +319,7 @@ struct LeagueDetailView: View {
             games = try await g
             rosterCount = try await countPlayers(teams: teams)
             await resolveMyTeam()
+            await resolveViewerState()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -277,11 +327,46 @@ struct LeagueDetailView: View {
         isLoading = false
     }
 
-    private func editLeague(name: String, isPublic: Bool, format: LeagueFormat) async {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+    // Staff status, owner's pending join requests, and the visitor's own
+    // pending request — everything that shapes the join/edit affordances.
+    private func resolveViewerState() async {
+        guard let userId = auth.profile?.id else {
+            isStaff = false; joinRequests = []; hasPendingRequest = false; return
+        }
+        if !isOwner {
+            isStaff = (try? await leagueService.isStaff(leagueId: league.id, userId: userId)) ?? false
+        }
+        if isOwner {
+            joinRequests = (try? await leagueService.fetchJoinRequests(leagueId: league.id)) ?? []
+        } else if isVisitor && currentLeague.joinPolicy == .approval {
+            let mine = (try? await leagueService.fetchJoinRequests(leagueId: league.id)) ?? []
+            hasPendingRequest = mine.contains { $0.requestedBy == userId }
+        }
+    }
+
+    private func approveJoin(_ request: JoinRequest) async {
+        do {
+            try await leagueService.approveJoinRequest(id: request.id)
+            await loadAll()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func denyJoin(_ request: JoinRequest) async {
+        do {
+            try await leagueService.denyJoinRequest(id: request.id)
+            joinRequests.removeAll { $0.id == request.id }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func editLeague(_ draft: EditLeagueSheet.Draft) async {
+        let trimmed = draft.name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         do {
-            currentLeague = try await leagueService.updateLeague(id: league.id, name: trimmed, isPublic: isPublic, format: format)
+            currentLeague = try await leagueService.updateLeague(
+                id: league.id, name: trimmed, isPublic: draft.isPublic, format: draft.format,
+                joinPolicy: draft.joinPolicy, allowPlayerTeams: draft.allowPlayerTeams,
+                maxTeams: draft.maxTeams, maxRosterSize: draft.maxRosterSize
+            )
             await onChange?()
         } catch {
             errorMessage = error.localizedDescription
@@ -594,7 +679,8 @@ private struct JoinCodeCard: View {
                     .kerning(4)
                     .foregroundStyle(Brand.orange)
                 Spacer()
-                ShareLink(item: "Join my Boxscore league \"\(league.name)\"! Open the app, tap Join a League, and enter code \(league.joinCode).") {
+                ShareLink(item: AppConfig.joinURL(code: league.joinCode),
+                          message: Text("Join my Boxscore league \"\(league.name)\"! Tap the link, or enter code \(league.joinCode) in the app.")) {
                     Label("Share", systemImage: "square.and.arrow.up")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white)
@@ -670,20 +756,42 @@ private struct NewGameSheet: View {
 }
 
 private struct EditLeagueSheet: View {
+    struct Draft {
+        var name: String
+        var isPublic: Bool
+        var format: LeagueFormat
+        var joinPolicy: JoinPolicy
+        var allowPlayerTeams: Bool
+        var maxTeams: Int?
+        var maxRosterSize: Int?
+    }
+
     let league: League
-    let onSave: (String, Bool, LeagueFormat) async -> Void
+    let onSave: (Draft) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var isPublic: Bool
     @State private var format: LeagueFormat
+    @State private var joinPolicy: JoinPolicy
+    @State private var allowPlayerTeams: Bool
+    @State private var limitTeams: Bool
+    @State private var maxTeams: Int
+    @State private var limitRoster: Bool
+    @State private var maxRoster: Int
 
-    init(league: League, onSave: @escaping (String, Bool, LeagueFormat) async -> Void) {
+    init(league: League, onSave: @escaping (Draft) async -> Void) {
         self.league = league
         self.onSave = onSave
         _name = State(initialValue: league.name)
         _isPublic = State(initialValue: league.isPublic)
         _format = State(initialValue: league.format)
+        _joinPolicy = State(initialValue: league.joinPolicy)
+        _allowPlayerTeams = State(initialValue: league.allowPlayerTeams)
+        _limitTeams = State(initialValue: league.maxTeams != nil)
+        _maxTeams = State(initialValue: league.maxTeams ?? 8)
+        _limitRoster = State(initialValue: league.maxRosterSize != nil)
+        _maxRoster = State(initialValue: league.maxRosterSize ?? 12)
     }
 
     var body: some View {
@@ -700,8 +808,25 @@ private struct EditLeagueSheet: View {
                 }
                 Section {
                     Toggle("Public league", isOn: $isPublic)
+                    if isPublic {
+                        Picker("Who can join", selection: $joinPolicy) {
+                            Text("Anyone (instant)").tag(JoinPolicy.open)
+                            Text("Approval required").tag(JoinPolicy.approval)
+                        }
+                    }
                 } footer: {
-                    Text("Public leagues can be discovered by players near you.")
+                    Text("Public leagues appear in search. Private leagues are join-by-code only.")
+                }
+                Section("Teams") {
+                    Toggle("Players can create teams", isOn: $allowPlayerTeams)
+                    Toggle("Limit number of teams", isOn: $limitTeams)
+                    if limitTeams {
+                        Stepper("Max teams: \(maxTeams)", value: $maxTeams, in: 2...64)
+                    }
+                    Toggle("Limit roster size", isOn: $limitRoster)
+                    if limitRoster {
+                        Stepper("Max players per team: \(maxRoster)", value: $maxRoster, in: 1...30)
+                    }
                 }
             }
             .navigationTitle("Edit League")
@@ -709,12 +834,79 @@ private struct EditLeagueSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await onSave(name, isPublic, format); dismiss() } }
-                        .fontWeight(.bold)
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Save") {
+                        let draft = Draft(
+                            name: name, isPublic: isPublic, format: format, joinPolicy: joinPolicy,
+                            allowPlayerTeams: allowPlayerTeams,
+                            maxTeams: limitTeams ? maxTeams : nil,
+                            maxRosterSize: limitRoster ? maxRoster : nil
+                        )
+                        Task { await onSave(draft); dismiss() }
+                    }
+                    .fontWeight(.bold)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
+    }
+}
+
+// MARK: - Visitor join CTA & owner join-requests
+
+private struct JoinCTA: View {
+    let mode: JoinMode
+    let hasPendingRequest: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        if hasPendingRequest {
+            HStack(spacing: 8) {
+                Image(systemName: "clock.fill").foregroundStyle(Brand.orange)
+                Text("Request pending — the organizer will review it.")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            .brandCard(padding: 14)
+        } else {
+            Button(action: onTap) {
+                Text(mode == .publicApproval ? "Request to Join" : "Join This League")
+            }
+            .buttonStyle(BrandPrimaryButtonStyle())
+        }
+    }
+}
+
+private struct JoinRequestsCard: View {
+    let requests: [JoinRequest]
+    let onApprove: (JoinRequest) async -> Void
+    let onDeny: (JoinRequest) async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeaderText("Join requests")
+            ForEach(requests) { req in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(req.requesterName).font(.system(size: 14, weight: .bold))
+                        Text("wants to join \(req.teamLabel)")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { Task { await onApprove(req) } } label: {
+                        Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white).frame(width: 34, height: 30)
+                            .background(Brand.orange, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    Button { Task { await onDeny(req) } } label: {
+                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.secondary).frame(width: 34, height: 30)
+                            .background(Brand.card, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .brandCard(padding: 16)
     }
 }
 

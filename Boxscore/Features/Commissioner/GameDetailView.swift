@@ -3,7 +3,10 @@ import SwiftUI
 struct GameDetailView: View {
     let game: Game
     let teams: [Team]
+    /// Owner-only actions (reschedule, delete).
     let isOwner: Bool
+    /// Stat editing — owner or a designated stat keeper.
+    var canKeepStats: Bool = false
     var seasonGames: [Game] = []
     var onResult: (() async -> Void)? = nil
 
@@ -28,10 +31,11 @@ struct GameDetailView: View {
     enum Tab: String, CaseIterable { case news, boxScore, teamStats, video }
     enum Side { case away, home }
 
-    init(game: Game, teams: [Team], isOwner: Bool, seasonGames: [Game] = [], onResult: (() async -> Void)? = nil) {
+    init(game: Game, teams: [Team], isOwner: Bool, canKeepStats: Bool = false, seasonGames: [Game] = [], onResult: (() async -> Void)? = nil) {
         self.game = game
         self.teams = teams
         self.isOwner = isOwner
+        self.canKeepStats = canKeepStats
         self.seasonGames = seasonGames
         self.onResult = onResult
         _currentGame = State(initialValue: game)
@@ -75,7 +79,7 @@ struct GameDetailView: View {
                     ErrorBanner(message: errorMessage)
                 }
 
-                if isOwner {
+                if canKeepStats {
                     Button(currentGame.hasResult ? "Edit Final Score" : "Enter Final Score") {
                         isShowingScoreEntry = true
                     }
@@ -219,7 +223,7 @@ struct GameDetailView: View {
                 BoxScoreTable(
                     roster: roster,
                     lineFor: { boxScores[$0.id] ?? .empty(gameId: currentGame.id, rosterSpotId: $0.id) },
-                    isOwner: isOwner,
+                    canEdit: canKeepStats,
                     game: currentGame
                 )
             }
@@ -392,7 +396,7 @@ private struct RescheduleSheet: View {
 private struct BoxScoreTable: View {
     let roster: [RosterSpot]
     let lineFor: (RosterSpot) -> BoxScoreStat
-    let isOwner: Bool
+    let canEdit: Bool
     let game: Game
 
     private let rowHeight: CGFloat = 44
@@ -425,7 +429,7 @@ private struct BoxScoreTable: View {
                                     .font(.system(size: 13, weight: .medium))
                                     .lineLimit(1)
                                     .foregroundStyle(.primary)
-                                if isOwner {
+                                if canEdit {
                                     Image(systemName: "square.and.pencil")
                                         .font(.system(size: 10))
                                         .foregroundStyle(Brand.orange)
@@ -468,7 +472,7 @@ private struct BoxScoreTable: View {
 
     @ViewBuilder
     private func rowLink<Content: View>(_ spot: RosterSpot, @ViewBuilder content: () -> Content) -> some View {
-        if isOwner {
+        if canEdit {
             NavigationLink { PlayerStatEntryView(game: game, rosterSpot: spot) } label: { content() }
                 .buttonStyle(.plain)
         } else {

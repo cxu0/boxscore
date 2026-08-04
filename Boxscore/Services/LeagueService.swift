@@ -81,21 +81,104 @@ final class LeagueService: ObservableObject {
     /// having to think about "seasons" on day one.
     /// Creates the league, its first season, and any teams the organizer added
     /// during setup — one call so a brand-new league is ready to share.
-    /// Edits a league's name, visibility, and format in one update.
-    func updateLeague(id: UUID, name: String, isPublic: Bool, format: LeagueFormat) async throws -> League {
+    /// Edits a league's settings in one update.
+    func updateLeague(
+        id: UUID,
+        name: String,
+        isPublic: Bool,
+        format: LeagueFormat,
+        joinPolicy: JoinPolicy,
+        allowPlayerTeams: Bool,
+        maxTeams: Int?,
+        maxRosterSize: Int?
+    ) async throws -> League {
         struct Update: Encodable {
             let name: String
             let is_public: Bool
             let format: String
+            let join_policy: String
+            let allow_player_teams: Bool
+            let max_teams: Int?
+            let max_roster_size: Int?
         }
         return try await client
             .from("leagues")
-            .update(Update(name: name, is_public: isPublic, format: format.rawValue))
+            .update(Update(
+                name: name, is_public: isPublic, format: format.rawValue,
+                join_policy: joinPolicy.rawValue, allow_player_teams: allowPlayerTeams,
+                max_teams: maxTeams, max_roster_size: maxRosterSize
+            ))
             .eq("id", value: id)
             .select()
             .single()
             .execute()
             .value
+    }
+
+    func fetchLeague(id: UUID) async throws -> League {
+        try await client.from("leagues").select().eq("id", value: id).single().execute().value
+    }
+
+    // MARK: Stat keepers
+
+    func redeemStaffCode(_ code: String) async throws -> League {
+        try await client
+            .rpc("redeem_staff_code", params: ["p_code": code])
+            .single()
+            .execute()
+            .value
+    }
+
+    func regenerateStaffCode(leagueId: UUID) async throws -> String {
+        try await client
+            .rpc("regenerate_staff_code", params: ["p_league_id": leagueId.uuidString])
+            .execute()
+            .value
+    }
+
+    func fetchStaff(leagueId: UUID) async throws -> [LeagueStaff] {
+        try await client
+            .from("league_staff")
+            .select("*, profiles(display_name)")
+            .eq("league_id", value: leagueId)
+            .execute()
+            .value
+    }
+
+    func removeStaff(id: UUID) async throws {
+        try await client.from("league_staff").delete().eq("id", value: id).execute()
+    }
+
+    /// Whether the given user may keep stats for the league (owner or staff).
+    func isStaff(leagueId: UUID, userId: UUID) async throws -> Bool {
+        let rows: [LeagueStaff] = try await client
+            .from("league_staff")
+            .select()
+            .eq("league_id", value: leagueId)
+            .eq("profile_id", value: userId)
+            .execute()
+            .value
+        return !rows.isEmpty
+    }
+
+    // MARK: Join requests (public approval leagues)
+
+    func fetchJoinRequests(leagueId: UUID) async throws -> [JoinRequest] {
+        try await client
+            .from("join_requests")
+            .select("*, profiles(display_name), teams(name)")
+            .eq("league_id", value: leagueId)
+            .eq("status", value: ClaimRequestStatus.pending.rawValue)
+            .execute()
+            .value
+    }
+
+    func approveJoinRequest(id: UUID) async throws {
+        try await client.rpc("approve_join_request", params: ["p_request_id": id.uuidString]).execute()
+    }
+
+    func denyJoinRequest(id: UUID) async throws {
+        try await client.rpc("deny_join_request", params: ["p_request_id": id.uuidString]).execute()
     }
 
     func deleteLeague(id: UUID) async throws {

@@ -22,6 +22,11 @@ enum LeagueFormat: String, Codable, CaseIterable {
     }
 }
 
+enum JoinPolicy: String, Codable {
+    case open
+    case approval
+}
+
 struct League: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
@@ -29,7 +34,43 @@ struct League: Codable, Identifiable, Hashable {
     var isPublic: Bool
     var joinCode: String
     var format: LeagueFormat
+    var staffCode: String
+    var allowPlayerTeams: Bool
+    var maxTeams: Int?
+    var maxRosterSize: Int?
+    var joinPolicy: JoinPolicy
     var createdAt: Date?
+}
+
+/// A stat keeper on a league, with their name embedded via PostgREST select.
+struct LeagueStaff: Codable, Identifiable, Equatable {
+    let id: UUID
+    var leagueId: UUID
+    var profileId: UUID
+    var profiles: Ref?
+    struct Ref: Codable, Equatable { let displayName: String }
+    var name: String { profiles?.displayName ?? "Stat keeper" }
+}
+
+/// A request to join a public (approval-gated) league, with requester + team
+/// names embedded for the owner's review UI.
+struct JoinRequest: Codable, Identifiable, Equatable {
+    let id: UUID
+    var leagueId: UUID
+    var requestedBy: UUID
+    var teamId: UUID?
+    var newTeamName: String?
+    var displayName: String
+    var status: ClaimRequestStatus
+    var createdAt: Date?
+    var profiles: RequesterRef?
+    var teams: TeamRef?
+
+    struct RequesterRef: Codable, Equatable { let displayName: String }
+    struct TeamRef: Codable, Equatable { let name: String }
+
+    var requesterName: String { profiles?.displayName ?? displayName }
+    var teamLabel: String { teams?.name ?? newTeamName ?? "a team" }
 }
 
 /// A league tagged with how the current user relates to it — used by the

@@ -3,12 +3,15 @@ import SwiftUI
 struct LeaguesTabView: View {
     let profile: Profile?
 
+    @EnvironmentObject private var router: AppRouter
     @StateObject private var leagueService = LeagueService()
     @State private var myLeagues: [MyLeague] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isShowingJoin = false
     @State private var isShowingSignIn = false
+    @State private var openLeague: League?
+    @State private var openViaCode: String?
     @State private var searchText = ""
     @State private var discovered: [League] = []
     @State private var isSearching = false
@@ -64,11 +67,13 @@ struct LeaguesTabView: View {
             }
             .refreshable { if profile != nil { await loadLeagues() } }
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(item: $openLeague) { league in
+                LeagueDetailView(league: league, viaJoinCode: openViaCode, onChange: { await loadLeagues() })
+            }
             .sheet(isPresented: $isShowingJoin) {
-                if let profile {
-                    NavigationStack {
-                        JoinLeagueView(profile: profile) { await loadLeagues() }
-                    }
+                JoinCodeSheet { league, code in
+                    openViaCode = code
+                    openLeague = league
                 }
             }
             .sheet(isPresented: $isShowingSignIn) {
@@ -92,7 +97,37 @@ struct LeaguesTabView: View {
                 Task { await loadLeagues() }
             }
             .onChange(of: searchText) { _, _ in scheduleSearch() }
-            .task { if profile != nil { await loadLeagues() } }
+            .onChange(of: router.pending) { _, _ in resolvePending() }
+            .onChange(of: profile) { _, _ in resolvePending() }
+            .task {
+                if profile != nil { await loadLeagues() }
+                resolvePending()
+            }
+        }
+    }
+
+    // Resolve a deep link into an opened league. Requires sign-in (RLS is
+    // authenticated-only); if the viewer is a guest, prompt sign-in and the
+    // profile onChange re-runs this once they're in.
+    private func resolvePending() {
+        guard let dest = router.pending else { return }
+        guard profile != nil else { isShowingSignIn = true; return }
+        Task {
+            switch dest {
+            case .joinCode(let code):
+                if let league = try? await leagueService.findLeague(byJoinCode: code) {
+                    openViaCode = code; openLeague = league
+                }
+            case .staffCode(let code):
+                if let league = try? await leagueService.redeemStaffCode(code) {
+                    openViaCode = nil; openLeague = league
+                }
+            case .publicLeague(let id):
+                if let league = try? await leagueService.fetchLeague(id: id) {
+                    openViaCode = nil; openLeague = league
+                }
+            }
+            router.pending = nil
         }
     }
 
