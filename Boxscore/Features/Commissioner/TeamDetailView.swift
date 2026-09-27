@@ -144,6 +144,7 @@ struct TeamDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             if isOwner {

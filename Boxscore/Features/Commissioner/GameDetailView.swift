@@ -91,6 +91,7 @@ struct GameDetailView: View {
             .padding(.top, 8)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
         .toolbar {
             if isOwner {
                 ToolbarItem(placement: .topBarTrailing) {

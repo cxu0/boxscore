@@ -120,6 +120,7 @@ struct LeagueDetailView: View {
         }
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             if isOwner {

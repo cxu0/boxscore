@@ -7,8 +7,15 @@ enum Brand {
     /// #FF5F1F
     static let orange = Color(red: 1.0, green: 0.373, blue: 0.122)
 
-    /// Card surface — adapts to light/dark like the prototype's #F6F6F6 / #1C1C1C.
-    static let card = Color(.secondarySystemBackground)
+    /// Card surface — white on the warm off-white page (dark: #1C1C1E).
+    static let card = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+        : .white })
+
+    /// Page background — warm off-white #EEECE8 (dark: black).
+    static let background = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? .black
+        : UIColor(red: 0.933, green: 0.925, blue: 0.91, alpha: 1) })
 
     /// Subtle hairline border used on cards.
     static let border = Color.primary.opacity(0.08)
@@ -59,6 +66,11 @@ struct BrandCard: ViewModifier {
 extension View {
     func brandCard(padding: CGFloat = 14) -> some View {
         modifier(BrandCard(padding: padding))
+    }
+
+    /// Paints the warm off-white page background behind a screen.
+    func brandBackground() -> some View {
+        background(Brand.background.ignoresSafeArea())
     }
 }
 

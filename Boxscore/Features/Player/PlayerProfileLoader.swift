@@ -28,6 +28,7 @@ struct PlayerProfileLoader: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
         .task { await load() }
     }
 
@@ -93,6 +94,7 @@ struct PlaceholderProfileView: View {
         }
         .ignoresSafeArea(edges: .top)
         .task { await load() }
+        .brandBackground()
     }
 
     private var hero: some View {

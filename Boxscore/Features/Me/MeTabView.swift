@@ -13,6 +13,7 @@ struct MeTabView: View {
                 if let profile {
                     ProfileView(profile: profile)
                         .toolbar(.hidden, for: .navigationBar)
+                        .brandBackground()
                         .overlay(alignment: .topTrailing) {
                             Menu {
                                 Button {
@@ -43,6 +44,7 @@ struct MeTabView: View {
                 } else {
                     SignInPromptView(message: "Sign in to see your career stats and teams.")
                         .toolbar(.hidden, for: .navigationBar)
+                        .brandBackground()
                 }
             }
         }

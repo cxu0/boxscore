@@ -67,6 +67,7 @@ struct LeaguesTabView: View {
             }
             .refreshable { if profile != nil { await loadLeagues() } }
             .toolbar(.hidden, for: .navigationBar)
+            .brandBackground()
             .navigationDestination(item: $openLeague) { league in
                 LeagueDetailView(league: league, viaJoinCode: openViaCode, onChange: { await loadLeagues() })
             }

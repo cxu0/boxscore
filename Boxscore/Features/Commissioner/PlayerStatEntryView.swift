@@ -69,6 +69,7 @@ struct PlayerStatEntryView: View {
         }
         .navigationTitle("Box Score")
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
         .overlay { if isLoading { LoadingView() } }
         .task { await loadExisting() }
         .onChange(of: stat) { _, newValue in scheduleSave(newValue) }

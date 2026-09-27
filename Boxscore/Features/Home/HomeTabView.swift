@@ -70,6 +70,7 @@ struct HomeTabView: View {
                 .padding(.horizontal, 18)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .brandBackground()
         }
     }
 }

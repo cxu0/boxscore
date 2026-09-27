@@ -25,6 +25,7 @@ struct CreateTabView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .brandBackground()
             .navigationDestination(item: $createdLeague) { league in
                 LeagueDetailView(league: league)
             }

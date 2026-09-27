@@ -1,47 +1,40 @@
 import SwiftUI
 
-/// The floating pill tab bar: three plain icon+label tabs plus an elevated
-/// orange Create button. The selected tab (and a tapped Create) pops —
-/// grows slightly and gains a shadow — via a spring animation.
+/// Flat bottom tab bar: outline icons with condensed caps labels, the current
+/// tab tinted orange, and a raised orange Create button in the middle.
 struct CustomTabBar: View {
     @Binding var selection: Int
 
     var body: some View {
-        HStack(spacing: 0) {
-            tabButton(tag: 0, icon: "house", filledIcon: "house.fill", label: "Home")
-            tabButton(tag: 1, icon: "trophy", filledIcon: "trophy.fill", label: "Leagues")
+        HStack(alignment: .bottom, spacing: 0) {
+            tabButton(tag: 0, icon: "house", selectedIcon: "house.fill", label: "HOME")
+            tabButton(tag: 1, icon: "line.3.horizontal", selectedIcon: "line.3.horizontal", label: "LEAGUES")
             createButton
-            tabButton(tag: 3, icon: "person.crop.circle", filledIcon: "person.crop.circle.fill", label: "Me")
+            tabButton(tag: 3, icon: "person", selectedIcon: "person.fill", label: "ME")
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
         .background(
-            Capsule(style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+            Brand.card
+                .ignoresSafeArea(edges: .bottom)
+                .overlay(alignment: .top) { Rectangle().fill(Brand.border).frame(height: 1) }
         )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 6)
     }
 
-    private func tabButton(tag: Int, icon: String, filledIcon: String, label: String) -> some View {
+    private func tabButton(tag: Int, icon: String, selectedIcon: String, label: String) -> some View {
         let selected = selection == tag
         return Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.65)) { selection = tag }
+            selection = tag
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: selected ? filledIcon : icon)
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(selected ? Brand.orange : .secondary)
-                    .frame(width: 42, height: 30)
-                    .background(Capsule().fill(selected ? Brand.orange.opacity(0.14) : .clear))
-                    .scaleEffect(selected ? 1.1 : 1.0)
-                    .shadow(color: selected ? Brand.orange.opacity(0.22) : .clear, radius: selected ? 6 : 0, y: selected ? 2 : 0)
+            VStack(spacing: 5) {
+                Image(systemName: selected ? selectedIcon : icon)
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(height: 26)
                 Text(label)
-                    .font(.system(size: 10, weight: selected ? .bold : .medium))
-                    .foregroundStyle(selected ? Brand.orange : .secondary)
+                    .font(.system(size: 10, weight: .black).width(.condensed))
+                    .kerning(0.8)
             }
+            .foregroundStyle(selected ? Brand.orange : Color.primary.opacity(0.75))
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
@@ -51,18 +44,25 @@ struct CustomTabBar: View {
     private var createButton: some View {
         let selected = selection == 2
         return Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.6)) { selection = 2 }
+            selection = 2
         } label: {
-            ZStack {
-                Circle()
+            VStack(spacing: 5) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Brand.orange)
-                    .frame(width: selected ? 60 : 54, height: selected ? 60 : 54)
-                    .shadow(color: Brand.orange.opacity(selected ? 0.45 : 0.28), radius: selected ? 14 : 7, y: selected ? 6 : 3)
-                Image(systemName: "plus")
-                    .font(.system(size: selected ? 25 : 22, weight: .bold))
-                    .foregroundStyle(.white)
+                    .frame(width: 54, height: 54)
+                    .shadow(color: Brand.orange.opacity(0.35), radius: 8, y: 4)
+                    .overlay(
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                    .offset(y: -10)
+                    .padding(.bottom, -10)
+                Text("CREATE")
+                    .font(.system(size: 10, weight: .black).width(.condensed))
+                    .kerning(0.8)
+                    .foregroundStyle(selected ? Brand.orange : Color.primary.opacity(0.75))
             }
-            .offset(y: -14)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }

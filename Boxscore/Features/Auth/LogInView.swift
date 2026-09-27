@@ -48,6 +48,7 @@ struct LogInView: View {
         }
         .navigationTitle("Log In")
         .navigationBarTitleDisplayMode(.inline)
+        .brandBackground()
     }
 
     private func logIn() async {
