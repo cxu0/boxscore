@@ -42,30 +42,6 @@ struct CustomTabBar: View {
     }
 
     private var createButton: some View {
-        let selected = selection == 2
-        return Button {
-            selection = 2
-        } label: {
-            VStack(spacing: 5) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Brand.orange)
-                    .frame(width: 42, height: 42)
-                    .shadow(color: Brand.orange.opacity(0.35), radius: 6, y: 3)
-                    .overlay(
-                        Image(systemName: "plus")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white)
-                    )
-                    .offset(y: -6)
-                    .padding(.bottom, -6)
-                Text("CREATE")
-                    .font(.system(size: 10, weight: .black).width(.condensed))
-                    .kerning(0.8)
-                    .foregroundStyle(selected ? Brand.orange : Color.primary.opacity(0.75))
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        tabButton(tag: 2, icon: "plus.square", selectedIcon: "plus.square.fill", label: "CREATE")
     }
 }
