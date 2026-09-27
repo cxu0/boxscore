@@ -47,17 +47,17 @@ struct CustomTabBar: View {
             selection = 2
         } label: {
             VStack(spacing: 5) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Brand.orange)
-                    .frame(width: 54, height: 54)
-                    .shadow(color: Brand.orange.opacity(0.35), radius: 8, y: 4)
+                    .frame(width: 42, height: 42)
+                    .shadow(color: Brand.orange.opacity(0.35), radius: 6, y: 3)
                     .overlay(
                         Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white)
                     )
-                    .offset(y: -10)
-                    .padding(.bottom, -10)
+                    .offset(y: -6)
+                    .padding(.bottom, -6)
                 Text("CREATE")
                     .font(.system(size: 10, weight: .black).width(.condensed))
                     .kerning(0.8)
