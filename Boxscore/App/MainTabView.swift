@@ -11,20 +11,20 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             HomeTabView(profile: profile)
-                .tabItem { Label("Home", systemImage: "house") }
                 .tag(0)
 
             LeaguesTabView(profile: profile)
-                .tabItem { Label("Leagues", systemImage: "trophy") }
                 .tag(1)
 
             CreateTabView(profile: profile)
-                .tabItem { Label("Create", systemImage: "plus.circle") }
                 .tag(2)
 
             MeTabView(profile: profile)
-                .tabItem { Label("Me", systemImage: "person.crop.circle") }
                 .tag(3)
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .safeAreaInset(edge: .bottom) {
+            CustomTabBar(selection: $selection)
         }
         .tint(Brand.orange)
         // A deep link resolves inside the Leagues tab — switch to it.

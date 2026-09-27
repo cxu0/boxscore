@@ -271,7 +271,11 @@ struct LeagueDetailView: View {
             } else {
                 ForEach(teams) { team in
                     NavigationLink {
-                        TeamDetailView(team: team, isOwner: isOwner, onChange: { await loadAll() })
+                        TeamDetailView(
+                            team: team, isOwner: isOwner,
+                            league: currentLeague, season: season, allTeams: teams, seasonGames: games,
+                            onChange: { await loadAll() }
+                        )
                     } label: {
                         HStack(spacing: 12) {
                             TeamCrest(name: team.name)
