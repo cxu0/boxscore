@@ -1,0 +1,46 @@
+# Boxscore
+
+iOS app (SwiftUI) that gives amateur/rec-league basketball players the pro treatment: permanent cross-league career profiles, league management, box scores, standings, and (planned) full-game video + AI. North star: **make a rec player feel like a pro.**
+
+The owner (Cooper) is non-technical and learning — explain decisions in plain language, give a recommendation plus the main tradeoff, and flag anything he must do by hand (running migrations, Apple/Supabase setup).
+
+## Stack
+- SwiftUI, iOS-only (deployment target 26.5). Xcode project uses file-system-synchronized groups — new files under `Boxscore/` are picked up automatically, no pbxproj edits.
+- Backend: Supabase (Postgres + Auth + RLS + RPCs) via `supabase-swift` SPM. Config in `Boxscore/Services/SupabaseService.swift` (anon key is intentionally public; RLS enforces access). Custom JSON date parsing there handles Postgres `date` + `timestamptz`.
+- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0003; **0004 was written but confirm it's been run.**
+
+## Build & verify
+```
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Boxscore.xcodeproj -scheme Boxscore -destination "id=246AC1A1-B10E-446E-8B3E-53E8EBEA687E" build 2>&1 | grep -E "error:|BUILD"
+```
+(xcode-select points at CommandLineTools, so the DEVELOPER_DIR prefix is required; simulator = iPhone 17.) Install/launch with `xcrun simctl install/launch`, screenshot with `xcrun simctl io <id> screenshot`. Signed-in flows can't be driven from the CLI — say so and ask Cooper to tap through.
+
+## Code layout
+- `App/` — `BoxscoreApp` (injects `AuthService`, `AppRouter`), `RootView`, `MainTabView` (TabView + `CustomTabBar`), `AppRouter` (deep links + `AppConfig.linkDomain`).
+- `Models/Models.swift` — Codable structs mirroring tables (snake_case auto-converted).
+- `Services/` — `AuthService`, `LeagueService`, `RosterService`, `StatService`. Views never talk to Supabase directly.
+- `Features/` — `Home`, `Leagues` (list/search/discover, `JoinFlow`), `Create`, `Me`, `Player` (profile, read-only + placeholder profiles), `Commissioner` (league/team/game detail, box score entry, stats leaderboard, stat keepers), `Shared` (Theme, tab bar, components).
+
+## Domain model & permission rules (important)
+- **One unified account.** "Organizer" and "player" are per-league *relationships*, never an account type: owner = `leagues.owner_id`; player = has a `roster_spot` in the league; stat keeper = row in `league_staff`.
+- UI gating: `isOwner` (settings, teams, schedule, delete), `canKeepStats` = owner || staff (box scores, final scores). The **database RLS is the real lock**; UI checks are just for hiding buttons.
+- Placeholders: roster spots with `player_id = null`, claimed via "That's me" → owner approves.
+- Joining: private leagues via join code (code opens the league page, then pick/create a team); public leagues joinable directly (`join_policy` open/approval). Caps: `max_teams`, `max_roster_size`, `allow_player_teams`.
+- Standings come from manually entered final scores (`games.home_score/away_score`); player stats from `box_scores` (end-of-game totals per roster spot).
+
+## Design system (`Features/Shared/Theme.swift`)
+- `Brand.orange` #FF5F1F accent; `Brand.background` warm off-white page; `Brand.card` white cards (dark mode adapts).
+- `.font(.display(size))` = SF condensed black for headlines/numbers; `SectionHeaderText` for ALL-CAPS labels; `.brandCard()`, `.brandBackground()` (add to every new screen), `BrandPrimaryButtonStyle` / `BrandSecondaryButtonStyle`, `BrandTextField`, `SearchField`, `BigStatTile`, `TeamCrest`.
+- Heroes: dark gradient header with condensed white title (see League/Team/Profile views).
+- Tab bar: flat white bar, outline icons, condensed caps labels, selected tab fills orange; all four tabs equal size.
+- Use `.system(size:weight:).width(.condensed)` (not `width:` in the initializer — that doesn't compile).
+
+## Roadmap / decisions
+- Next big bet: **full-game video capture + storage** (the moat). Planned architecture: phone records in chunks → dedicated video host (Cloudflare Stream or Mux, NOT Supabase Storage) → `video_assets` pointer table with a `t=0` → a time-indexed `game_events` table (offset, player, type, source, confidence, status) as the source of truth → webhook/job seam where ML plugs in later. Then stat-linked auto-highlights (needs live timestamped stat events), then AI-assisted stats (propose/confirm, not fully automatic).
+- Other backlog: AI game recaps (Home tab is a placeholder), stat-sheet photo → AI box score, push notifications, location "near you" discovery, Stripe payments, jersey numbers, TestFlight pilot.
+- Universal links: app side done; needs Cooper's domain + Associated Domains (`docs/universal-links-setup.md`).
+- Specs: `docs/design-join-staff-links.md`.
+
+## Working conventions
+- Commit after each working change with a descriptive message. Remote `origin` = github.com/cxu0/boxscore; pushing needs Cooper's credentials (sandbox can't push).
+- Don't fabricate data fields the schema doesn't have — say what's missing.
