@@ -8,7 +8,7 @@ final class LeagueService: ObservableObject {
 
     // MARK: Leagues
 
-    /// Leagues the user owns, merged with leagues they have a roster spot in —
+    /// Leagues the user owns, keeps stats for, or has a roster spot in —
     /// the "My Leagues" list doesn't distinguish organizer vs player accounts,
     /// just relationships to individual leagues.
     func fetchMyLeagues(userId: UUID) async throws -> [MyLeague] {
@@ -17,6 +17,14 @@ final class LeagueService: ObservableObject {
             .select()
             .eq("owner_id", value: userId)
             .order("created_at", ascending: false)
+            .execute()
+            .value
+
+        struct StaffLeagueRow: Decodable { let leagues: League }
+        async let staffTask: [StaffLeagueRow] = client
+            .from("league_staff")
+            .select("leagues!inner(*)")
+            .eq("profile_id", value: userId)
             .execute()
             .value
 
@@ -33,21 +41,17 @@ final class LeagueService: ObservableObject {
             .value
 
         let owned = try await ownedTask
-        let played = try await playedTask
+        let staffed = try await staffTask.map(\.leagues)
+        let played = try await playedTask.map(\.teams.seasons.leagues)
 
-        var seen = Set<UUID>()
-        var result: [MyLeague] = []
-        for league in owned {
-            seen.insert(league.id)
-            result.append(MyLeague(league: league, relationship: .owner))
+        var byId: [UUID: MyLeague] = [:]
+        func add(_ league: League, _ role: MyLeague.Role) {
+            byId[league.id, default: MyLeague(league: league, roles: [])].roles.insert(role)
         }
-        for row in played {
-            let league = row.teams.seasons.leagues
-            if seen.insert(league.id).inserted {
-                result.append(MyLeague(league: league, relationship: .player))
-            }
-        }
-        return result.sorted { ($0.league.createdAt ?? .distantPast) > ($1.league.createdAt ?? .distantPast) }
+        owned.forEach { add($0, .owner) }
+        staffed.forEach { add($0, .staff) }
+        played.forEach { add($0, .player) }
+        return byId.values.sorted { ($0.league.createdAt ?? .distantPast) > ($1.league.createdAt ?? .distantPast) }
     }
 
     /// Public leagues matching a name search — the browse/discover path. Private

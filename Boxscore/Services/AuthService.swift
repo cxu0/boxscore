@@ -83,7 +83,9 @@ final class AuthService: ObservableObject {
     /// cache-busting query param forces the UI to reload the new image.
     func updateAvatar(imageData: Data) async throws {
         let userId = try await client.auth.session.user.id
-        let path = "\(userId.uuidString)/headshot.jpg"
+        // Lowercased: Swift's uuidString is UPPERCASE, but the storage RLS
+        // policy compares the folder to auth.uid()::text, which is lowercase.
+        let path = "\(userId.uuidString.lowercased())/headshot.jpg"
 
         try await client.storage
             .from("avatars")

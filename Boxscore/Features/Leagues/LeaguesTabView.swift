@@ -75,6 +75,8 @@ struct LeaguesTabView: View {
                 JoinCodeSheet { league, code in
                     openViaCode = code
                     openLeague = league
+                    // A stat-keeper code adds the league to My Leagues right away.
+                    if code == nil { Task { await loadLeagues() } }
                 }
             }
             .sheet(isPresented: $isShowingSignIn) {
@@ -122,6 +124,7 @@ struct LeaguesTabView: View {
             case .staffCode(let code):
                 if let league = try? await leagueService.redeemStaffCode(code) {
                     openViaCode = nil; openLeague = league
+                    await loadLeagues()
                 }
             case .publicLeague(let id):
                 if let league = try? await leagueService.fetchLeague(id: id) {
@@ -260,15 +263,19 @@ struct LeaguesTabView: View {
 private struct LeagueCard: View {
     let entry: MyLeague
 
-    private var isOwner: Bool { entry.relationship == .owner }
+    private var dotColor: Color {
+        if entry.roles.contains(.owner) { return Brand.orange }
+        if entry.roles.contains(.staff) { return .green }
+        return .blue
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(isOwner ? Brand.orange : .blue)
+                    .fill(dotColor)
                     .frame(width: 8, height: 8)
-                Text(isOwner ? "ORGANIZER" : "PLAYER")
+                Text(entry.label)
                     .font(.system(size: 10, weight: .black).width(.condensed))
                     .kerning(1.2)
                     .foregroundStyle(.secondary)

@@ -76,14 +76,24 @@ struct JoinRequest: Codable, Identifiable, Equatable {
 /// A league tagged with how the current user relates to it — used by the
 /// "My Leagues" list, which merges owned and joined leagues into one feed.
 struct MyLeague: Identifiable, Equatable {
-    enum Relationship {
+    enum Role {
         case owner
+        case staff
         case player
     }
     let league: League
-    let relationship: Relationship
+    /// A user can hold more than one role in a league (e.g. player + stat keeper).
+    var roles: Set<Role>
 
     var id: UUID { league.id }
+
+    /// Badge text, most-privileged role first.
+    var label: String {
+        if roles.contains(.owner) { return "ORGANIZER" }
+        if roles.contains(.staff) && roles.contains(.player) { return "PLAYER · STAT KEEPER" }
+        if roles.contains(.staff) { return "STAT KEEPER" }
+        return "PLAYER"
+    }
 }
 
 struct Season: Codable, Identifiable, Equatable {

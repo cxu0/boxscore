@@ -44,8 +44,8 @@ struct LeagueDetailView: View {
     private var isOwner: Bool { auth.profile?.id == league.ownerId }
     private var isMember: Bool { myTeam != nil }
     private var canKeepStats: Bool { isOwner || isStaff }
-    /// A signed-in viewer who isn't the owner and isn't on a roster.
-    private var isVisitor: Bool { auth.profile != nil && !isOwner && !isMember }
+    /// A signed-in viewer with no role here — not owner, stat keeper, or rostered.
+    private var isVisitor: Bool { auth.profile != nil && !isOwner && !isStaff && !isMember }
 
     /// How this viewer would join, given the league's visibility/policy and
     /// whether they arrived with the code. nil = can't join from here.
@@ -76,6 +76,10 @@ struct LeagueDetailView: View {
 
                     if isOwner {
                         JoinCodeCard(league: currentLeague)
+                    }
+
+                    if isStaff && !isOwner {
+                        StatKeeperCard()
                     }
 
                     if isVisitor, let mode = joinMode {
@@ -671,6 +675,24 @@ private struct NextGameCard: View {
 }
 
 // MARK: - Join code
+
+private struct StatKeeperCard: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "pencil.and.list.clipboard")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Brand.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                SectionHeaderText("You're a stat keeper")
+                Text("Open any game in the Schedule to enter the box score and final score.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .brandCard(padding: 16)
+    }
+}
 
 private struct JoinCodeCard: View {
     let league: League
