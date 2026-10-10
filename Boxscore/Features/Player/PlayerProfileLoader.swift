@@ -48,15 +48,10 @@ struct PlayerProfileLoader: View {
 struct PlaceholderProfileView: View {
     let rosterSpot: RosterSpot
 
-    @EnvironmentObject private var auth: AuthService
     @StateObject private var statService = StatService()
-    @StateObject private var rosterService = RosterService()
     @State private var totals = BoxScoreStat.Totals()
     @State private var gamesPlayed = 0
     @State private var isLoading = true
-    @State private var claimState: ClaimState = .idle
-
-    enum ClaimState { case idle, sending, sent, failed }
 
     private var initials: String {
         let parts = rosterSpot.displayName.split(separator: " ")
@@ -84,9 +79,6 @@ struct PlaceholderProfileView: View {
                         statsSection
                     }
                     unclaimedNote
-                    if auth.profile != nil {
-                        claimButton
-                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 24)
@@ -171,50 +163,11 @@ struct PlaceholderProfileView: View {
         HStack(spacing: 10) {
             Image(systemName: "person.crop.circle.badge.questionmark")
                 .font(.system(size: 18)).foregroundStyle(Brand.orange)
-            Text("When this player joins the app and claims their spot, this becomes their full career profile across every league.")
+            Text("When this player signs up with the email their league has on file, this becomes their full career profile across every league.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
         .brandCard(padding: 14)
-    }
-
-    @ViewBuilder
-    private var claimButton: some View {
-        switch claimState {
-        case .sent:
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Request sent — the organizer will confirm it's you.")
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
-            }
-            .brandCard(padding: 14)
-        default:
-            Button {
-                Task { await claim() }
-            } label: {
-                if claimState == .sending {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("That's me — claim this spot")
-                }
-            }
-            .buttonStyle(BrandPrimaryButtonStyle())
-            .disabled(claimState == .sending)
-            if claimState == .failed {
-                Text("Couldn't send the request. It may already be claimed.")
-                    .font(.system(size: 12)).foregroundStyle(.red)
-            }
-        }
-    }
-
-    private func claim() async {
-        claimState = .sending
-        do {
-            _ = try await rosterService.requestClaim(rosterSpotId: rosterSpot.id)
-            claimState = .sent
-        } catch {
-            claimState = .failed
-        }
     }
 
     private func load() async {

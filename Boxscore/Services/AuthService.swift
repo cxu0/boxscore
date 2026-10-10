@@ -12,6 +12,9 @@ final class AuthService: ObservableObject {
     func start() async {
         for await state in client.auth.authStateChanges {
             if let user = state.session?.user {
+                // Safety net for spots that were waiting on this email (the
+                // database also links on confirm/import via triggers).
+                _ = try? await RosterService().claimMyRosterSpots()
                 await loadProfile(userId: user.id)
             } else {
                 profile = nil
@@ -34,15 +37,28 @@ final class AuthService: ObservableObject {
         }
     }
 
-    func signUp(email: String, password: String, displayName: String) async throws {
-        try await client.auth.signUp(
+    /// Returns true when Supabase wants the email confirmed first (no
+    /// session yet) — the caller then asks for the 6-digit code.
+    @discardableResult
+    func signUp(email: String, password: String, displayName: String) async throws -> Bool {
+        let response = try await client.auth.signUp(
             email: email,
             password: password,
             data: ["display_name": .string(displayName)]
         )
-        if let userId = try? await client.auth.session.user.id {
-            await loadProfile(userId: userId)
-        }
+        guard let session = response.session else { return true }
+        await loadProfile(userId: session.user.id)
+        return false
+    }
+
+    /// Confirms a new account with the code from the signup email. The
+    /// resulting session fires authStateChanges, which loads the profile.
+    func verifySignUpCode(email: String, code: String) async throws {
+        try await client.auth.verifyOTP(email: email, token: code, type: .signup)
+    }
+
+    func resendSignUpCode(email: String) async throws {
+        try await client.auth.resend(email: email, type: .signup)
     }
 
     func signIn(email: String, password: String) async throws {

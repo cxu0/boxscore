@@ -118,29 +118,33 @@ struct RosterSpot: Codable, Identifiable, Equatable {
     var displayName: String
     var playerId: UUID?
     var createdAt: Date?
+    /// The email the organizer attached to this spot. RLS only returns it to
+    /// the league owner; everyone else sees nil.
+    var rosterSpotEmails: EmailRef?
+    struct EmailRef: Codable, Equatable { let email: String }
+
+    var inviteEmail: String? { rosterSpotEmails?.email }
+}
+
+/// One row of a roster import: team, player name, and (optional) email.
+struct RosterImportRow: Codable, Equatable, Identifiable {
+    var team: String
+    var name: String
+    var email: String?
+    var id: String { "\(team)|\(name)|\(email ?? "")" }
+}
+
+struct RosterImportResult: Decodable, Equatable {
+    let teamsCreated: Int
+    let playersAdded: Int
+    let alreadyJoined: Int
+    let skipped: Int
 }
 
 enum ClaimRequestStatus: String, Codable {
     case pending
     case approved
     case denied
-}
-
-/// A player's request to take over a placeholder roster spot, with the
-/// requester's name embedded via PostgREST's foreign-key select.
-struct ClaimRequest: Codable, Identifiable, Equatable {
-    let id: UUID
-    var rosterSpotId: UUID
-    var requestedBy: UUID
-    var status: ClaimRequestStatus
-    var createdAt: Date?
-    var profiles: RequesterRef?
-
-    struct RequesterRef: Codable, Equatable {
-        let displayName: String
-    }
-
-    var requesterName: String { profiles?.displayName ?? "Unknown player" }
 }
 
 enum GameStatus: String, Codable {

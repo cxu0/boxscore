@@ -9,24 +9,59 @@ final class RosterService: ObservableObject {
     func fetchRoster(teamId: UUID) async throws -> [RosterSpot] {
         try await client
             .from("roster_spots")
-            .select()
+            .select("*, roster_spot_emails(email)")
             .eq("team_id", value: teamId)
             .order("display_name")
             .execute()
             .value
     }
 
-    /// Adds a placeholder roster spot for a player who isn't on the app yet.
-    /// Stats can accrue against it immediately; the real player links their
-    /// account to it later via `requestClaim`.
-    func addRosterSpot(teamId: UUID, displayName: String) async throws -> RosterSpot {
-        try await client
+    /// Adds a roster spot by name. With an email, the player is linked
+    /// automatically as soon as they sign up (or right away if they already
+    /// have a confirmed account) — see 0005_roster_emails.sql.
+    func addRosterSpot(teamId: UUID, displayName: String, email: String?) async throws -> RosterSpot {
+        let spot: RosterSpot = try await client
             .from("roster_spots")
             .insert(["team_id": teamId.uuidString, "display_name": displayName])
             .select()
             .single()
             .execute()
             .value
+        try await setEmail(rosterSpotId: spot.id, email: email)
+        return spot
+    }
+
+    /// Sets (or clears, when empty) the email attached to a roster spot.
+    func setEmail(rosterSpotId: UUID, email: String?) async throws {
+        let cleaned = email?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        if cleaned.isEmpty {
+            try await client.from("roster_spot_emails").delete().eq("roster_spot_id", value: rosterSpotId).execute()
+        } else {
+            try await client
+                .from("roster_spot_emails")
+                .upsert(["roster_spot_id": rosterSpotId.uuidString, "email": cleaned])
+                .execute()
+        }
+    }
+
+    /// Owner bulk import: creates teams + roster spots (+ emails) in the
+    /// league's current season in one transaction.
+    func importRoster(leagueId: UUID, rows: [RosterImportRow]) async throws -> RosterImportResult {
+        struct Params: Encodable {
+            let p_league_id: String
+            let p_rows: [RosterImportRow]
+        }
+        return try await client
+            .rpc("import_roster", params: Params(p_league_id: leagueId.uuidString, p_rows: rows))
+            .execute()
+            .value
+    }
+
+    /// Links the signed-in user to any roster spots carrying their confirmed
+    /// email. Returns how many were linked.
+    @discardableResult
+    func claimMyRosterSpots() async throws -> Int {
+        try await client.rpc("claim_my_roster_spots").execute().value
     }
 
     func renameRosterSpot(id: UUID, displayName: String) async throws {
@@ -110,42 +145,6 @@ final class RosterService: ObservableObject {
             .execute()
             .value
         return !rows.isEmpty
-    }
-
-    /// A player asking to take over a placeholder roster spot the organizer
-    /// already entered stats against. Pending until the organizer approves.
-    func requestClaim(rosterSpotId: UUID) async throws -> ClaimRequest {
-        try await client
-            .rpc("request_claim", params: ["p_roster_spot_id": rosterSpotId.uuidString])
-            .single()
-            .execute()
-            .value
-    }
-
-    /// Pending claim requests for every placeholder on this team, with the
-    /// requester's name embedded — shown to the organizer for approval.
-    func fetchPendingClaimRequests(teamId: UUID) async throws -> [ClaimRequest] {
-        try await client
-            .from("claim_requests")
-            .select("*, profiles(display_name), roster_spots!inner(team_id)")
-            .eq("roster_spots.team_id", value: teamId)
-            .eq("status", value: ClaimRequestStatus.pending.rawValue)
-            .execute()
-            .value
-    }
-
-    func approveClaimRequest(id: UUID) async throws -> RosterSpot {
-        try await client
-            .rpc("approve_claim_request", params: ["p_request_id": id.uuidString])
-            .single()
-            .execute()
-            .value
-    }
-
-    func denyClaimRequest(id: UUID) async throws {
-        try await client
-            .rpc("deny_claim_request", params: ["p_request_id": id.uuidString])
-            .execute()
     }
 
     func fetchLinkedRosterSpots(playerId: UUID) async throws -> [RosterSpot] {

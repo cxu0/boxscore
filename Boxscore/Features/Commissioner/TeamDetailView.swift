@@ -18,7 +18,6 @@ struct TeamDetailView: View {
 
     @State private var teamName: String
     @State private var roster: [RosterSpot] = []
-    @State private var pendingRequests: [ClaimRequest] = []
     @State private var lines: [UUID: (totals: BoxScoreStat.Totals, gamesPlayed: Int)] = [:]
     @State private var statSort: StatSort = .pts
     @State private var isLoading = true
@@ -32,6 +31,8 @@ struct TeamDetailView: View {
     @State private var spotRenaming: RosterSpot?
     @State private var renameSpotText = ""
     @State private var spotPendingDelete: RosterSpot?
+    @State private var spotEditingEmail: RosterSpot?
+    @State private var emailText = ""
 
     enum StatSort: String, CaseIterable {
         case pts = "PTS", reb = "REB", ast = "AST"
@@ -129,9 +130,6 @@ struct TeamDetailView: View {
                                 leadersSection
                             }
                             rosterSection
-                            if isOwner && !pendingRequests.isEmpty {
-                                pendingRequestsSection
-                            }
                             if let errorMessage {
                                 ErrorBanner(message: errorMessage)
                             }
@@ -170,7 +168,7 @@ struct TeamDetailView: View {
             }
         }
         .sheet(isPresented: $isShowingAddPlayer) {
-            NewRosterSpotSheet { name in await addPlayer(name: name) }
+            NewRosterSpotSheet { name, email in await addPlayer(name: name, email: email) }
         }
         .alert("Rename team", isPresented: $isRenamingTeam) {
             TextField("Team name", text: $renameTeamText)
@@ -181,6 +179,16 @@ struct TeamDetailView: View {
             TextField("Player name", text: $renameSpotText)
             Button("Save") { Task { await renameSpot() } }
             Button("Cancel", role: .cancel) { spotRenaming = nil }
+        }
+        .alert("Player email", isPresented: Binding(get: { spotEditingEmail != nil }, set: { if !$0 { spotEditingEmail = nil } })) {
+            TextField("name@example.com", text: $emailText)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Save") { Task { await saveEmail() } }
+            Button("Cancel", role: .cancel) { spotEditingEmail = nil }
+        } message: {
+            Text("When they sign up with this email, they're added to the team automatically.")
         }
         .confirmationDialog("Delete this team?", isPresented: $isConfirmingDeleteTeam, titleVisibility: .visible) {
             Button("Delete Team", role: .destructive) { Task { await deleteTeam() } }
@@ -355,7 +363,9 @@ struct TeamDetailView: View {
             }
 
             if roster.isEmpty {
-                Text("No players yet. Add a roster spot, or share the league's join code so players can add themselves.")
+                Text(isOwner
+                     ? "No players yet. Add players with their email — or import the whole league from a spreadsheet on the league page."
+                     : "No players yet.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .brandCard()
@@ -429,7 +439,7 @@ struct TeamDetailView: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.primary)
                         if !claimed {
-                            Text("UNCLAIMED")
+                            Text(isOwner && spot.inviteEmail != nil ? "INVITED" : "NOT ON APP")
                                 .font(.system(size: 8, weight: .black).width(.condensed))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 6)
@@ -437,9 +447,10 @@ struct TeamDetailView: View {
                                 .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
                         }
                     }
-                    Text("\(gp) GP")
+                    Text(rowSubtitle(spot, claimed: claimed, gp: gp))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -467,11 +478,24 @@ struct TeamDetailView: View {
                     renameSpotText = spot.displayName
                     spotRenaming = spot
                 } label: { Label("Rename", systemImage: "pencil") }
+                if !claimed {
+                    Button {
+                        emailText = spot.inviteEmail ?? ""
+                        spotEditingEmail = spot
+                    } label: { Label(spot.inviteEmail == nil ? "Add Email" : "Edit Email", systemImage: "envelope") }
+                }
                 Button(role: .destructive) {
                     spotPendingDelete = spot
                 } label: { Label("Remove", systemImage: "trash") }
             }
         }
+    }
+
+    /// Owners see invite status on unjoined players; everyone else sees GP.
+    private func rowSubtitle(_ spot: RosterSpot, claimed: Bool, gp: Int) -> String {
+        guard isOwner, !claimed else { return "\(gp) GP" }
+        if let email = spot.inviteEmail { return "\(gp) GP · \(email)" }
+        return "\(gp) GP · No email — hold to add one"
     }
 
     private func initials(_ name: String) -> String {
@@ -480,30 +504,12 @@ struct TeamDetailView: View {
         return letters.isEmpty ? "?" : String(letters).uppercased()
     }
 
-    // MARK: Pending requests
-
-    private var pendingRequestsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeaderText("Pending requests")
-            ForEach(pendingRequests) { request in
-                PendingRequestRow(
-                    request: request,
-                    onApprove: { await approve(request) },
-                    onDeny: { await deny(request) }
-                )
-            }
-        }
-    }
-
     // MARK: Data
 
     private func loadAll() async {
         isLoading = true
         do {
             roster = try await rosterService.fetchRoster(teamId: team.id)
-            if isOwner {
-                pendingRequests = try await rosterService.fetchPendingClaimRequests(teamId: team.id)
-            }
             await loadStats()
             errorMessage = nil
         } catch {
@@ -526,11 +532,12 @@ struct TeamDetailView: View {
         }
     }
 
-    private func addPlayer(name: String) async {
+    private func addPlayer(name: String, email: String) async {
         do {
-            let spot = try await rosterService.addRosterSpot(teamId: team.id, displayName: name)
-            roster.append(spot)
-            await loadStats()
+            _ = try await rosterService.addRosterSpot(teamId: team.id, displayName: name, email: email)
+            // Reload so the email (and an instant link, if they're already on
+            // the app) shows up.
+            await loadAll()
             await onChange?()
         } catch {
             errorMessage = error.localizedDescription
@@ -584,19 +591,12 @@ struct TeamDetailView: View {
         }
     }
 
-    private func approve(_ request: ClaimRequest) async {
+    private func saveEmail() async {
+        guard let spot = spotEditingEmail else { return }
+        spotEditingEmail = nil
         do {
-            _ = try await rosterService.approveClaimRequest(id: request.id)
+            try await rosterService.setEmail(rosterSpotId: spot.id, email: emailText)
             await loadAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func deny(_ request: ClaimRequest) async {
-        do {
-            try await rosterService.denyClaimRequest(id: request.id)
-            pendingRequests.removeAll { $0.id == request.id }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -615,45 +615,37 @@ private func ordinal(_ n: Int) -> String {
     return "\(n)\(suffix)"
 }
 
-private struct PendingRequestRow: View {
-    let request: ClaimRequest
-    let onApprove: () async -> Void
-    let onDeny: () async -> Void
-
-    var body: some View {
-        HStack {
-            Text(request.requesterName)
-            Spacer()
-            Button("Approve") { Task { await onApprove() } }
-                .buttonStyle(.bordered)
-            Button("Deny") { Task { await onDeny() } }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red)
-        }
-        .brandCard(padding: 12)
-    }
-}
-
 private struct NewRosterSpotSheet: View {
-    let onCreate: (String) async -> Void
+    let onCreate: (String, String) async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var email = ""
 
     var body: some View {
         NavigationStack {
-            Form { TextField("Player Name", text: $name) }
-                .navigationTitle("Add Player")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Add") {
-                            Task { await onCreate(name); dismiss() }
-                        }
-                        .disabled(name.isEmpty)
-                    }
+            Form {
+                TextField("Player Name", text: $name)
+                Section {
+                    TextField("Email (optional)", text: $email)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("Use the email they registered with. When they sign up with it, they're added to this team automatically.")
                 }
+            }
+            .navigationTitle("Add Player")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        Task { await onCreate(name, email); dismiss() }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
         }
     }
 }

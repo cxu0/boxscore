@@ -28,6 +28,7 @@ struct LeagueDetailView: View {
     @State private var isShowingNewGame = false
     @State private var isShowingJoinTeam = false
     @State private var isShowingStaff = false
+    @State private var isShowingImport = false
     @State private var isEditingLeague = false
     @State private var isEditingSeason = false
     @State private var isConfirmingDeleteLeague = false
@@ -137,6 +138,9 @@ struct LeagueDetailView: View {
                             isEditingSeason = true
                         } label: { Label("Edit Season", systemImage: "calendar") }
                         Button {
+                            isShowingImport = true
+                        } label: { Label("Import Rosters", systemImage: "square.and.arrow.down") }
+                        Button {
                             isShowingStaff = true
                         } label: { Label("Stat Keepers", systemImage: "person.2.badge.gearshape") }
                         Button(role: .destructive) {
@@ -160,6 +164,9 @@ struct LeagueDetailView: View {
                     hasPendingRequest = (mode == .publicApproval)
                 }
             }
+        }
+        .sheet(isPresented: $isShowingImport) {
+            ImportRosterSheet(league: currentLeague) { await loadAll() }
         }
         .sheet(isPresented: $isShowingStaff) {
             StatKeepersView(league: currentLeague)
@@ -260,6 +267,12 @@ struct LeagueDetailView: View {
     private var rostersView: some View {
         VStack(spacing: 10) {
             if isOwner {
+                Button {
+                    isShowingImport = true
+                } label: {
+                    Label("Import Rosters from Spreadsheet", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(BrandPrimaryButtonStyle())
                 Button {
                     isShowingNewTeam = true
                 } label: {

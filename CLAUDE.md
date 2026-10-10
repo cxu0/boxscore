@@ -7,7 +7,7 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 ## Stack
 - SwiftUI, iOS-only (deployment target 26.5). Xcode project uses file-system-synchronized groups — new files under `Boxscore/` are picked up automatically, no pbxproj edits.
 - Backend: Supabase (Postgres + Auth + RLS + RPCs) via `supabase-swift` SPM. Config in `Boxscore/Services/SupabaseService.swift` (anon key is intentionally public; RLS enforces access). Custom JSON date parsing there handles Postgres `date` + `timestamptz`.
-- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0004.
+- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0004; **0005 (roster emails) written — confirm it's been run.**
 
 ## Build & verify
 ```
@@ -24,7 +24,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Box
 ## Domain model & permission rules (important)
 - **One unified account.** "Organizer" and "player" are per-league *relationships*, never an account type: owner = `leagues.owner_id`; player = has a `roster_spot` in the league; stat keeper = row in `league_staff`.
 - UI gating: `isOwner` (settings, teams, schedule, delete), `canKeepStats` = owner || staff (box scores, final scores). The **database RLS is the real lock**; UI checks are just for hiding buttons.
-- Placeholders: roster spots with `player_id = null`, claimed via "That's me" → owner approves.
+- Placeholders: roster spots with `player_id = null`. Organizers attach an email (`roster_spot_emails`, owner-only RLS) — usually via **Import Rosters** (paste/CSV, `import_roster` RPC). A user whose *confirmed* email matches is linked automatically (DB triggers + `claim_my_roster_spots` on sign-in). No "That's me"/approval flow — mismatches are fixed by the organizer editing the email. Requires Supabase "Confirm email" ON (signup uses a 6-digit code).
+- Direction (agreed with Cooper): leagues already have their own signup websites and roster lists — Boxscore imports them rather than replacing signup. Player join codes are being removed; discovery = location search + universal links. Stat-keeper code stays.
 - Joining: private leagues via join code (code opens the league page, then pick/create a team); public leagues joinable directly (`join_policy` open/approval). Caps: `max_teams`, `max_roster_size`, `allow_player_teams`.
 - Standings come from manually entered final scores (`games.home_score/away_score`); player stats from `box_scores` (end-of-game totals per roster spot).
 
