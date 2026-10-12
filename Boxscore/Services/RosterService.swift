@@ -44,6 +44,13 @@ final class RosterService: ObservableObject {
         }
     }
 
+    /// Undo a wrong email match: detaches the account and clears the email so
+    /// it can't re-link. The organizer then adds the right email.
+    func unlinkPlayer(rosterSpotId: UUID) async throws {
+        try await client.from("roster_spots").update(["player_id": AnyJSON.null]).eq("id", value: rosterSpotId).execute()
+        try await setEmail(rosterSpotId: rosterSpotId, email: nil)
+    }
+
     /// Owner bulk import: creates teams + roster spots (+ emails) in the
     /// league's current season in one transaction.
     func importRoster(leagueId: UUID, rows: [RosterImportRow]) async throws -> RosterImportResult {

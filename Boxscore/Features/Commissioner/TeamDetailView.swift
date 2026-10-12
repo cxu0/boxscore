@@ -32,6 +32,7 @@ struct TeamDetailView: View {
     @State private var renameSpotText = ""
     @State private var spotPendingDelete: RosterSpot?
     @State private var spotEditingEmail: RosterSpot?
+    @State private var spotPendingUnlink: RosterSpot?
     @State private var emailText = ""
 
     enum StatSort: String, CaseIterable {
@@ -189,6 +190,16 @@ struct TeamDetailView: View {
             Button("Cancel", role: .cancel) { spotEditingEmail = nil }
         } message: {
             Text("When they sign up with this email, they're added to the team automatically.")
+        }
+        .confirmationDialog(
+            "Unlink this account?",
+            isPresented: Binding(get: { spotPendingUnlink != nil }, set: { if !$0 { spotPendingUnlink = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Unlink", role: .destructive) { Task { await unlinkSpot() } }
+            Button("Cancel", role: .cancel) { spotPendingUnlink = nil }
+        } message: {
+            Text("Use this if the wrong person was matched. Their stats stay on this spot; add the right email afterward.")
         }
         .confirmationDialog("Delete this team?", isPresented: $isConfirmingDeleteTeam, titleVisibility: .visible) {
             Button("Delete Team", role: .destructive) { Task { await deleteTeam() } }
@@ -478,6 +489,11 @@ struct TeamDetailView: View {
                     renameSpotText = spot.displayName
                     spotRenaming = spot
                 } label: { Label("Rename", systemImage: "pencil") }
+                if claimed {
+                    Button {
+                        spotPendingUnlink = spot
+                    } label: { Label("Unlink Account", systemImage: "person.crop.circle.badge.xmark") }
+                }
                 if !claimed {
                     Button {
                         emailText = spot.inviteEmail ?? ""
@@ -586,6 +602,17 @@ struct TeamDetailView: View {
             try await rosterService.deleteRosterSpot(id: spot.id)
             roster.removeAll { $0.id == spot.id }
             await onChange?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func unlinkSpot() async {
+        guard let spot = spotPendingUnlink else { return }
+        spotPendingUnlink = nil
+        do {
+            try await rosterService.unlinkPlayer(rosterSpotId: spot.id)
+            await loadAll()
         } catch {
             errorMessage = error.localizedDescription
         }

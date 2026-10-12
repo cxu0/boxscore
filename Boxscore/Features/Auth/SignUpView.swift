@@ -9,16 +9,7 @@ struct SignUpView: View {
     @State private var password = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-    // Email confirmation step (when Supabase "Confirm email" is on).
-    @State private var awaitingCode = false
-    @State private var code = ""
-    @State private var resent = false
-
     var body: some View {
-        if awaitingCode { codeStep } else { form }
-    }
-
-    private var form: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Create your\nplayer account.")
@@ -72,52 +63,6 @@ struct SignUpView: View {
         .brandBackground()
     }
 
-    private var codeStep: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Check your\nemail.")
-                    .font(.display(36))
-                    .padding(.top, 12)
-                Text("We sent a 6-digit code to \(email). Enter it to finish creating your account.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-
-                BrandTextField(placeholder: "Code", text: $code)
-                    .textContentType(.oneTimeCode)
-                    .keyboardType(.numberPad)
-                    .font(.display(22))
-
-                if let errorMessage {
-                    ErrorBanner(message: errorMessage)
-                }
-
-                Button {
-                    Task { await verify() }
-                } label: {
-                    if isSubmitting { ProgressView().tint(.white) } else { Text("Confirm") }
-                }
-                .buttonStyle(BrandPrimaryButtonStyle())
-                .disabled(isSubmitting || code.count < 6)
-                .opacity(code.count < 6 ? 0.5 : 1)
-
-                Button(resent ? "Code sent" : "Resend code") {
-                    Task {
-                        try? await auth.resendSignUpCode(email: email)
-                        resent = true
-                    }
-                }
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Brand.orange)
-                .disabled(resent)
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 24)
-        }
-        .navigationTitle("Confirm Email")
-        .navigationBarTitleDisplayMode(.inline)
-        .brandBackground()
-    }
-
     private var isValid: Bool {
         !displayName.isEmpty && !email.isEmpty && password.count >= 6
     }
@@ -126,30 +71,12 @@ struct SignUpView: View {
         isSubmitting = true
         errorMessage = nil
         do {
-            let needsCode = try await auth.signUp(email: email, password: password, displayName: displayName)
-            if needsCode {
-                awaitingCode = true
-            } else {
-                // Pop this screen so the app drops straight into the signed-in
-                // state instead of leaving the completed form on screen.
-                dismiss()
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isSubmitting = false
-    }
-}
-
-extension SignUpView {
-    fileprivate func verify() async {
-        isSubmitting = true
-        errorMessage = nil
-        do {
-            try await auth.verifySignUpCode(email: email, code: code.trimmingCharacters(in: .whitespaces))
+            try await auth.signUp(email: email, password: password, displayName: displayName)
+            // Pop this screen so the app drops straight into the signed-in state
+            // instead of leaving the completed form on screen.
             dismiss()
         } catch {
-            errorMessage = "That code didn't work. Check it, or tap Resend."
+            errorMessage = error.localizedDescription
         }
         isSubmitting = false
     }

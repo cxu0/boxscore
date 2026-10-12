@@ -37,28 +37,25 @@ final class AuthService: ObservableObject {
         }
     }
 
-    /// Returns true when Supabase wants the email confirmed first (no
-    /// session yet) — the caller then asks for the 6-digit code.
-    @discardableResult
-    func signUp(email: String, password: String, displayName: String) async throws -> Bool {
+    func signUp(email: String, password: String, displayName: String) async throws {
         let response = try await client.auth.signUp(
             email: email,
             password: password,
             data: ["display_name": .string(displayName)]
         )
-        guard let session = response.session else { return true }
+        // No session means Supabase's "Confirm email" setting is on — the app
+        // is designed for it to be off (instant signup).
+        guard let session = response.session else {
+            throw SignUpError.confirmationRequired
+        }
         await loadProfile(userId: session.user.id)
-        return false
     }
 
-    /// Confirms a new account with the code from the signup email. The
-    /// resulting session fires authStateChanges, which loads the profile.
-    func verifySignUpCode(email: String, code: String) async throws {
-        try await client.auth.verifyOTP(email: email, token: code, type: .signup)
-    }
-
-    func resendSignUpCode(email: String) async throws {
-        try await client.auth.resend(email: email, type: .signup)
+    enum SignUpError: LocalizedError {
+        case confirmationRequired
+        var errorDescription: String? {
+            "Check your email to confirm your account, then log in."
+        }
     }
 
     func signIn(email: String, password: String) async throws {
