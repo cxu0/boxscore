@@ -27,6 +27,8 @@ struct GameDetailView: View {
     @State private var isShowingReschedule = false
     @State private var isConfirmingDelete = false
     @State private var rescheduleDate = Date()
+    @State private var isAddingSub = false
+    @State private var subName = ""
 
     enum Tab: String, CaseIterable { case news, boxScore, teamStats, video }
     enum Side { case away, home }
@@ -228,6 +230,27 @@ struct GameDetailView: View {
                     game: currentGame
                 )
             }
+
+            if canKeepStats {
+                Button {
+                    subName = ""
+                    isAddingSub = true
+                } label: {
+                    Label("Add a sub", systemImage: "person.badge.plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Brand.orange)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+            }
+        }
+        .alert("Add a sub to \((boxTeam == .away ? awayTeam : homeTeam)?.name ?? "this team")", isPresented: $isAddingSub) {
+            TextField("Player name", text: $subName)
+                .textInputAutocapitalization(.words)
+            Button("Add") { Task { await addSub() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("They'll be added to the roster so you can record their stats.")
         }
     }
 
@@ -335,6 +358,18 @@ struct GameDetailView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func addSub() async {
+        let name = subName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let team = boxTeam == .away ? awayTeam : homeTeam else { return }
+        do {
+            let spot = try await rosterService.addSub(teamId: team.id, displayName: name)
+            if boxTeam == .away { awayRoster.append(spot) } else { homeRoster.append(spot) }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func saveResult(home: Int, away: Int) async {

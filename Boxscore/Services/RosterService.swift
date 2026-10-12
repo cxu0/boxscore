@@ -31,6 +31,16 @@ final class RosterService: ObservableObject {
         return spot
     }
 
+    /// Game-night sub: stat keepers or the owner add a name-only player so
+    /// their stats can be recorded. The organizer can attach an email later.
+    func addSub(teamId: UUID, displayName: String) async throws -> RosterSpot {
+        try await client
+            .rpc("add_sub", params: ["p_team_id": teamId.uuidString, "p_display_name": displayName])
+            .single()
+            .execute()
+            .value
+    }
+
     /// Sets (or clears, when empty) the email attached to a roster spot.
     func setEmail(rosterSpotId: UUID, email: String?) async throws {
         let cleaned = email?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
