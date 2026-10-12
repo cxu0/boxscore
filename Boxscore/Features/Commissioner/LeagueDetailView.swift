@@ -242,6 +242,13 @@ struct LeagueDetailView: View {
                 }
                 .buttonStyle(BrandSecondaryButtonStyle())
                 .disabled(teams.count < 2)
+                .opacity(teams.count < 2 ? 0.45 : 1)
+                if teams.count < 2 {
+                    Text("Add at least two teams (Rosters tab) to schedule a game.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             if games.isEmpty {
                 Text("No games scheduled yet.")
@@ -449,7 +456,10 @@ struct LeagueDetailView: View {
     }
 
     private func createGame(homeTeamId: UUID, awayTeamId: UUID, date: Date) async {
-        guard let season else { return }
+        guard let season else {
+            errorMessage = "This league has no season yet — add one from Edit Season."
+            return
+        }
         do {
             let game = try await leagueService.createGame(seasonId: season.id, homeTeamId: homeTeamId, awayTeamId: awayTeamId, scheduledAt: date)
             games.insert(game, at: 0)
