@@ -38,7 +38,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Box
 
 ## Roadmap / decisions
 - Next big bet: **full-game video capture + storage** (the moat). Planned architecture: phone records in chunks → dedicated video host (Cloudflare Stream or Mux, NOT Supabase Storage) → `video_assets` pointer table with a `t=0` → a time-indexed `game_events` table (offset, player, type, source, confidence, status) as the source of truth → webhook/job seam where ML plugs in later. Then stat-linked auto-highlights (needs live timestamped stat events), then AI-assisted stats (propose/confirm, not fully automatic).
-- Other backlog: AI game recaps (Home tab is a placeholder), stat-sheet photo → AI box score, push notifications, location "near you" discovery, Stripe payments, jersey numbers, TestFlight pilot.
+- Other backlog: email verification at signup (6-digit code; prevents someone claiming a teammate's spot by signing up with their email — code screen existed in commit cfac079), AI game recaps (Home tab is a placeholder), stat-sheet photo → AI box score, push notifications, location "near you" discovery, Stripe payments, jersey numbers, TestFlight pilot.
 - Universal links: app side done; needs Cooper's domain + Associated Domains (`docs/universal-links-setup.md`).
 - Specs: `docs/design-join-staff-links.md`.
 
