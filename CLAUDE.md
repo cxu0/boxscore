@@ -10,10 +10,10 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 - Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0006; **0007 (add_sub) written — confirm it's been run.**
 
 ## Build & verify
-```
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Boxscore.xcodeproj -scheme Boxscore -destination "id=246AC1A1-B10E-446E-8B3E-53E8EBEA687E" build 2>&1 | grep -E "error:|BUILD"
-```
-(xcode-select points at CommandLineTools, so the DEVELOPER_DIR prefix is required; simulator = iPhone 17.) Install/launch with `xcrun simctl install/launch`, screenshot with `xcrun simctl io <id> screenshot`. Signed-in flows can't be driven from the CLI — say so and ask Cooper to tap through.
+- **`scripts/verify.sh [screenshot.png]`** — builds, runs all tests, installs + launches on the iPhone 17 simulator (`246AC1A1-B10E-446E-8B3E-53E8EBEA687E`), screenshots. Use it before every commit. Skills: `/ship` (verify → look → commit → push) and `/migrate` (hand Cooper a migration, then verify it via the REST API).
+- Tests: `BoxscoreTests/` (Swift Testing, `@testable import Boxscore`, mark suites `@MainActor` — the app defaults to MainActor isolation). Add tests for pure logic: parsing, standings, model decoding against PostgREST-shaped JSON (use `SupabaseService.decoder`).
+- xcode-select currently points at CommandLineTools, so CLI tools need `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (the script sets it). The iOS Simulator MCP tool needs Cooper to run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` once.
+- Signed-in flows: Claude must not type passwords into the app (backend is remote). Once Cooper has signed into the simulator himself, the session persists and Claude can drive signed-in screens with the simulator tool.
 
 ## Code layout
 - `App/` — `BoxscoreApp` (injects `AuthService`, `AppRouter`), `RootView`, `MainTabView` (TabView + `CustomTabBar`), `AppRouter` (deep links + `AppConfig.linkDomain`).

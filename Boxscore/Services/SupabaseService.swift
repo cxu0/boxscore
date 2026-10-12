@@ -10,7 +10,14 @@ enum SupabaseConfig {
 }
 
 enum SupabaseService {
-    static let client: SupabaseClient = {
+    static let client: SupabaseClient = SupabaseClient(
+        supabaseURL: SupabaseConfig.url,
+        supabaseKey: SupabaseConfig.anonKey,
+        options: SupabaseClientOptions(db: .init(encoder: encoder, decoder: decoder))
+    )
+
+    /// Shared with tests so they decode responses exactly as the app does.
+    static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         // Postgres hands back several date shapes through PostgREST: `timestamptz`
@@ -27,6 +34,10 @@ enum SupabaseService {
             )
         }
 
+        return decoder
+    }()
+
+    static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         // Encode every Date as a full ISO-8601 timestamp. Postgres truncates it
@@ -37,18 +48,12 @@ enum SupabaseService {
             try container.encode(PostgresDate.iso8601WithFractional.string(from: date))
         }
 
-        return SupabaseClient(
-            supabaseURL: SupabaseConfig.url,
-            supabaseKey: SupabaseConfig.anonKey,
-            options: SupabaseClientOptions(
-                db: .init(encoder: encoder, decoder: decoder)
-            )
-        )
+        return encoder
     }()
 }
 
 /// Date parsing/formatting for the shapes PostgREST returns.
-private enum PostgresDate {
+enum PostgresDate {
     static let iso8601WithFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
