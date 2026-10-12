@@ -43,5 +43,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Box
 - Specs: `docs/design-join-staff-links.md`.
 
 ## Working conventions
-- Commit after each working change with a descriptive message. Remote `origin` = github.com/cxu0/boxscore; pushing needs Cooper's credentials (sandbox can't push).
+- Commit after each working change with a descriptive message. Remote `origin` = github.com/cxu0/boxscore; push after committing (gh auth is set up on this Mac).
 - Don't fabricate data fields the schema doesn't have — say what's missing.
