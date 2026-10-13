@@ -7,7 +7,7 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 ## Stack
 - SwiftUI, iOS-only (deployment target 26.5). Xcode project uses file-system-synchronized groups — new files under `Boxscore/` are picked up automatically, no pbxproj edits.
 - Backend: Supabase (Postgres + Auth + RLS + RPCs) via `supabase-swift` SPM. Config in `Boxscore/Services/SupabaseService.swift` (anon key is intentionally public; RLS enforces access). Custom JSON date parsing there handles Postgres `date` + `timestamptz`.
-- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0007; **0008 (location + retire join codes) written — confirm it's been run.**
+- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0008.
 
 ## Build & verify
 - **`scripts/verify.sh [screenshot.png]`** — builds, runs all tests, installs + launches on the iPhone 17 simulator (`246AC1A1-B10E-446E-8B3E-53E8EBEA687E`), screenshots. Use it before every commit. Skills: `/ship` (verify → look → commit → push) and `/migrate` (hand Cooper a migration, then verify it via the REST API).

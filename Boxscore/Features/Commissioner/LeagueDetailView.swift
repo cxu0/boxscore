@@ -491,7 +491,14 @@ private struct LeagueHero: View {
             LinearGradient(colors: [Color(white: 0.16), Color(white: 0.04)], startPoint: .top, endPoint: .bottom)
 
             VStack(alignment: .leading, spacing: 10) {
+                Spacer()
+                // Season line + status share a row so nothing sits under the
+                // floating back / ••• buttons at the top of the hero.
                 HStack {
+                    Text([season?.name, league.format.label].compactMap { $0 }.joined(separator: " · ").uppercased())
+                        .font(.system(size: 12, weight: .black).width(.condensed))
+                        .kerning(1.5)
+                        .foregroundStyle(.white.opacity(0.6))
                     Spacer()
                     HStack(spacing: 5) {
                         Circle().fill(inSeason ? Brand.orange : .gray).frame(width: 7, height: 7)
@@ -501,11 +508,6 @@ private struct LeagueHero: View {
                             .foregroundStyle(inSeason ? Brand.orange : .gray)
                     }
                 }
-                Spacer()
-                Text([season?.name, league.format.label].compactMap { $0 }.joined(separator: " · ").uppercased())
-                    .font(.system(size: 12, weight: .black).width(.condensed))
-                    .kerning(1.5)
-                    .foregroundStyle(.white.opacity(0.6))
                 Text(league.name)
                     .font(.display(38))
                     .foregroundStyle(.white)
@@ -540,9 +542,9 @@ private struct LeagueHero: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 18)
-            .padding(.top, 56)
+            .padding(.top, 112)
         }
-        .frame(minHeight: 240)
+        .frame(minHeight: 260)
         .clipped()
     }
 }
