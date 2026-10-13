@@ -7,12 +7,12 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 ## Stack
 - SwiftUI, iOS-only (deployment target 26.5). Xcode project uses file-system-synchronized groups — new files under `Boxscore/` are picked up automatically, no pbxproj edits.
 - Backend: Supabase (Postgres + Auth + RLS + RPCs) via `supabase-swift` SPM. Config in `Boxscore/Services/SupabaseService.swift` (anon key is intentionally public; RLS enforces access). Custom JSON date parsing there handles Postgres `date` + `timestamptz`.
-- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0006; **0007 (add_sub) written — confirm it's been run.**
+- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0007.
 
 ## Build & verify
 - **`scripts/verify.sh [screenshot.png]`** — builds, runs all tests, installs + launches on the iPhone 17 simulator (`246AC1A1-B10E-446E-8B3E-53E8EBEA687E`), screenshots. Use it before every commit. Skills: `/ship` (verify → look → commit → push) and `/migrate` (hand Cooper a migration, then verify it via the REST API).
 - Tests: `BoxscoreTests/` (Swift Testing, `@testable import Boxscore`, mark suites `@MainActor` — the app defaults to MainActor isolation). Add tests for pure logic: parsing, standings, model decoding against PostgREST-shaped JSON (use `SupabaseService.decoder`).
-- xcode-select currently points at CommandLineTools, so CLI tools need `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (the script sets it). The iOS Simulator MCP tool needs Cooper to run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` once.
+- xcode-select points at full Xcode (fixed 2026-10-13), so `xcodebuild`/`xcrun simctl` and the iOS Simulator MCP tool work directly.
 - Signed-in flows: Claude must not type passwords into the app (backend is remote). Once Cooper has signed into the simulator himself, the session persists and Claude can drive signed-in screens with the simulator tool.
 
 ## Code layout
