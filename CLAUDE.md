@@ -7,7 +7,7 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 ## Stack
 - SwiftUI, iOS-only (deployment target 26.5). Xcode project uses file-system-synchronized groups — new files under `Boxscore/` are picked up automatically, no pbxproj edits.
 - Backend: Supabase (Postgres + Auth + RLS + RPCs) via `supabase-swift` SPM. Config in `Boxscore/Services/SupabaseService.swift` (anon key is intentionally public; RLS enforces access). Custom JSON date parsing there handles Postgres `date` + `timestamptz`.
-- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0007.
+- Migrations live in `supabase/migrations/000N_*.sql`. They are **run manually by Cooper in the Supabase SQL Editor** — always remind him when a change needs a new migration. Applied so far: 0001–0007; **0008 (location + retire join codes) written — confirm it's been run.**
 
 ## Build & verify
 - **`scripts/verify.sh [screenshot.png]`** — builds, runs all tests, installs + launches on the iPhone 17 simulator (`246AC1A1-B10E-446E-8B3E-53E8EBEA687E`), screenshots. Use it before every commit. Skills: `/ship` (verify → look → commit → push) and `/migrate` (hand Cooper a migration, then verify it via the REST API).
@@ -26,7 +26,8 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 - UI gating: `isOwner` (settings, teams, schedule, delete), `canKeepStats` = owner || staff (box scores, final scores, add game-night subs via `add_sub`). The **database RLS is the real lock**; UI checks are just for hiding buttons.
 - Placeholders: roster spots with `player_id = null`. Organizers attach an email (`roster_spot_emails`, owner-only RLS) — usually via **Import Rosters** (paste/CSV, `import_roster` RPC). A user whose account email matches is linked automatically (DB triggers + `claim_my_roster_spots` on sign-in). No "That's me"/approval flow — mismatches are fixed by the organizer (Edit Email / Unlink Account). **No email confirmation, by Cooper's choice** (instant signup; accepted risk: someone could sign up with a teammate's email). Supabase "Confirm email" must stay OFF.
 - Direction (agreed with Cooper): leagues already have their own signup websites and roster lists — Boxscore imports them rather than replacing signup. Player join codes are being removed; discovery = location search + universal links. Stat-keeper code stays.
-- Joining: private leagues via join code (code opens the league page, then pick/create a team); public leagues joinable directly (`join_policy` open/approval). Caps: `max_teams`, `max_roster_size`, `allow_player_teams`.
+- Joining: **no player join codes** (removed in 0008; `join_league_self` dropped, `leagues.join_code` column unused). Private leagues fill by roster import + email match. Public leagues: if `signup_url` is set, visitors get "Sign up on the league's website"; otherwise in-app join (`join_policy` open/approval). Stat keepers still use `staff_code` (Leagues tab → "Have a stat-keeper code?", or `/keeper/CODE` link). Caps: `max_teams`, `max_roster_size`, `allow_player_teams`.
+- Location: leagues have `venue_name/venue_address/city/latitude/longitude/game_night/signup_url`. Gym picked via `VenuePickerField` (MapKit autocomplete, iOS 26 `MKMapItem.location/address` APIs). "Near you" = public leagues in a lat/lng box, sorted by haversine miles client-side (`LeagueService.fetchNearbyPublicLeagues`). Search matches name, city, or gym.
 - Standings come from manually entered final scores (`games.home_score/away_score`); player stats from `box_scores` (end-of-game totals per roster spot).
 
 ## Design system (`Features/Shared/Theme.swift`)
@@ -38,7 +39,7 @@ The owner (Cooper) is non-technical and learning — explain decisions in plain 
 
 ## Roadmap / decisions
 - Next big bet: **full-game video capture + storage** (the moat). Planned architecture: phone records in chunks → dedicated video host (Cloudflare Stream or Mux, NOT Supabase Storage) → `video_assets` pointer table with a `t=0` → a time-indexed `game_events` table (offset, player, type, source, confidence, status) as the source of truth → webhook/job seam where ML plugs in later. Then stat-linked auto-highlights (needs live timestamped stat events), then AI-assisted stats (propose/confirm, not fully automatic).
-- Other backlog: co-organizer role (organizer powers minus delete; stat keepers intentionally can't import/see emails), email verification at signup (6-digit code; prevents someone claiming a teammate's spot by signing up with their email — code screen existed in commit cfac079), AI game recaps (Home tab is a placeholder), stat-sheet photo → AI box score, push notifications, location "near you" discovery, Stripe payments, jersey numbers, TestFlight pilot.
+- Other backlog: co-organizer role (organizer powers minus delete; stat keepers intentionally can't import/see emails), email verification at signup (6-digit code; prevents someone claiming a teammate's spot by signing up with their email — code screen existed in commit cfac079), AI game recaps (Home tab is a placeholder), stat-sheet photo → AI box score, push notifications, Stripe payments, jersey numbers, TestFlight pilot.
 - Universal links: app side done; needs Cooper's domain + Associated Domains (`docs/universal-links-setup.md`).
 - Specs: `docs/design-join-staff-links.md`.
 

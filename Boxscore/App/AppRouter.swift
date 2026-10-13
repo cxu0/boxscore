@@ -8,7 +8,6 @@ import Combine
 enum AppConfig {
     static let linkDomain = "getboxscore.app"
 
-    static func joinURL(code: String) -> URL { URL(string: "https://\(linkDomain)/join/\(code)")! }
     static func staffURL(code: String) -> URL { URL(string: "https://\(linkDomain)/keeper/\(code)")! }
     static func leagueURL(id: UUID) -> URL { URL(string: "https://\(linkDomain)/league/\(id.uuidString)")! }
 }
@@ -17,7 +16,6 @@ enum AppConfig {
 @MainActor
 final class AppRouter: ObservableObject {
     enum Destination: Equatable {
-        case joinCode(String)
         case staffCode(String)
         case publicLeague(UUID)
     }
@@ -29,8 +27,6 @@ final class AppRouter: ObservableObject {
         let parts = url.pathComponents.filter { $0 != "/" }
         guard parts.count >= 2 else { return }
         switch parts[0] {
-        case "join":
-            pending = .joinCode(parts[1].uppercased())
         case "keeper":
             pending = .staffCode(parts[1].uppercased())
         case "league":

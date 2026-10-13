@@ -1,17 +1,16 @@
 import SwiftUI
 
-/// How a visitor joins the league they're looking at.
+/// How a visitor joins a public league they're looking at. (Private leagues
+/// fill by roster import + email match — there's no player join code.)
 enum JoinMode: Equatable {
-    case code(String)       // private league, arrived via join code
     case publicOpen         // public + instant
     case publicApproval     // public + request-to-join
 }
 
-/// Smart code entry: resolves a join code (→ open that league) or a
-/// stat-keeper code (→ redeem, then open the league with edit rights).
-struct JoinCodeSheet: View {
-    /// (league, viaJoinCode) — viaJoinCode is nil when it was a staff code.
-    let onResolved: (League, String?) -> Void
+/// Stat-keeper code entry: redeems the code, then opens the league with
+/// box-score rights.
+struct StaffCodeSheet: View {
+    let onResolved: (League) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var leagueService = LeagueService()
@@ -19,13 +18,15 @@ struct JoinCodeSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
+    private var trimmed: String { code.trimmingCharacters(in: .whitespaces).uppercased() }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Enter a code")
+                Text("Stat-keeper code")
                     .font(.display(34))
                     .padding(.top, 8)
-                Text("A league join code, or a stat-keeper code from an organizer.")
+                Text("The 6-character code your league organizer sent you.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
 
@@ -39,18 +40,17 @@ struct JoinCodeSheet: View {
                 }
 
                 Button {
-                    Task { await resolve() }
+                    Task { await redeem() }
                 } label: {
                     if isSubmitting { ProgressView().tint(.white) } else { Text("Continue") }
                 }
                 .buttonStyle(BrandPrimaryButtonStyle())
-                .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty || isSubmitting)
-                .opacity(code.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
+                .disabled(trimmed.isEmpty || isSubmitting)
+                .opacity(trimmed.isEmpty ? 0.5 : 1)
 
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .navigationTitle("Join")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -58,24 +58,16 @@ struct JoinCodeSheet: View {
         }
     }
 
-    private func resolve() async {
-        let entered = code.trimmingCharacters(in: .whitespaces).uppercased()
+    private func redeem() async {
         isSubmitting = true
         errorMessage = nil
-        // Try join code first, then stat-keeper code.
-        if let league = try? await leagueService.findLeague(byJoinCode: entered) {
-            isSubmitting = false
-            dismiss()
-            onResolved(league, entered)
-            return
-        }
         do {
-            let league = try await leagueService.redeemStaffCode(entered)
+            let league = try await leagueService.redeemStaffCode(trimmed)
             isSubmitting = false
             dismiss()
-            onResolved(league, nil)
+            onResolved(league)
         } catch {
-            errorMessage = "No league or stat-keeper code matches that."
+            errorMessage = "That code doesn't match any league."
             isSubmitting = false
         }
     }
@@ -228,15 +220,13 @@ struct JoinTeamSheet: View {
             if creatingNew {
                 let teamName = newTeamName.trimmingCharacters(in: .whitespaces)
                 switch mode {
-                case .code, .publicOpen:
+                case .publicOpen:
                     _ = try await rosterService.createTeamAndJoin(leagueId: league.id, teamName: teamName, displayName: name)
                 case .publicApproval:
                     _ = try await rosterService.requestToJoin(leagueId: league.id, teamId: nil, newTeamName: teamName, displayName: name)
                 }
             } else if let teamId = selectedTeamId {
                 switch mode {
-                case .code(let c):
-                    _ = try await rosterService.joinLeagueSelf(joinCode: c, teamId: teamId, displayName: name)
                 case .publicOpen:
                     _ = try await rosterService.joinLeaguePublic(leagueId: league.id, teamId: teamId, displayName: name)
                 case .publicApproval:

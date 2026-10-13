@@ -7,6 +7,9 @@ struct CreateTabView: View {
     @State private var name = ""
     @State private var format: LeagueFormat = .fiveOnFive
     @State private var isPublic = false
+    @State private var venue: Venue?
+    @State private var gameNight = ""
+    @State private var signupUrl = ""
     @State private var startDate = Date()
     @State private var endDate = Date().addingTimeInterval(60 * 60 * 24 * 90)
     @State private var teamNames: [String] = []
@@ -69,6 +72,14 @@ struct CreateTabView: View {
                     }
                 }
 
+                field("Gym") {
+                    VenuePickerField(venue: $venue)
+                }
+
+                field("Game night") {
+                    BrandTextField(placeholder: "e.g. Tuesdays, 7–10pm", text: $gameNight)
+                }
+
                 field("Season dates") {
                     HStack(spacing: 8) {
                         dateBox(label: "START", date: $startDate)
@@ -89,6 +100,16 @@ struct CreateTabView: View {
                 }
                 .tint(Brand.orange)
                 .brandCard()
+
+                field("League signup website (optional)") {
+                    BrandTextField(placeholder: "e.g. tuesdayhoops.com/register", text: $signupUrl)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("Players who find your league in Boxscore get a button to sign up here.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
 
                 if let errorMessage {
                     ErrorBanner(message: errorMessage)
@@ -181,7 +202,8 @@ struct CreateTabView: View {
                 ownerId: ownerId,
                 startDate: startDate,
                 endDate: endDate,
-                teamNames: teamNames
+                teamNames: teamNames,
+                details: .init(venue: venue, gameNight: gameNight, signupUrl: signupUrl)
             )
             resetForm()
             createdLeague = league
@@ -195,6 +217,9 @@ struct CreateTabView: View {
         name = ""
         format = .fiveOnFive
         isPublic = false
+        venue = nil
+        gameNight = ""
+        signupUrl = ""
         teamNames = []
         newTeamName = ""
     }

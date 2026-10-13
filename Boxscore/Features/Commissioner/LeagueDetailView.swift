@@ -2,9 +2,6 @@ import SwiftUI
 
 struct LeagueDetailView: View {
     let league: League
-    /// Set when the viewer arrived by entering this league's join code — it
-    /// authorizes joining a private league's roster.
-    var viaJoinCode: String? = nil
     var onChange: (() async -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
@@ -35,9 +32,8 @@ struct LeagueDetailView: View {
 
     enum Tab: String, CaseIterable { case standings, schedule, rosters, stats }
 
-    init(league: League, viaJoinCode: String? = nil, onChange: (() async -> Void)? = nil) {
+    init(league: League, onChange: (() async -> Void)? = nil) {
         self.league = league
-        self.viaJoinCode = viaJoinCode
         self.onChange = onChange
         _currentLeague = State(initialValue: league)
     }
@@ -48,10 +44,9 @@ struct LeagueDetailView: View {
     /// A signed-in viewer with no role here — not owner, stat keeper, or rostered.
     private var isVisitor: Bool { auth.profile != nil && !isOwner && !isStaff && !isMember }
 
-    /// How this viewer would join, given the league's visibility/policy and
-    /// whether they arrived with the code. nil = can't join from here.
+    /// How this viewer would join in-app, given the league's visibility and
+    /// policy. nil = can't join from here (private leagues fill by import).
     private var joinMode: JoinMode? {
-        if let code = viaJoinCode { return .code(code) }
         guard currentLeague.isPublic else { return nil }
         return currentLeague.joinPolicy == .approval ? .publicApproval : .publicOpen
     }
@@ -75,15 +70,19 @@ struct LeagueDetailView: View {
                         NextGameCard(game: next, teams: teams)
                     }
 
-                    if isOwner {
-                        JoinCodeCard(league: currentLeague)
+                    if isOwner && rosterCount == 0 && !isLoading {
+                        GetPlayersCard { isShowingImport = true }
                     }
 
                     if isStaff && !isOwner {
                         StatKeeperCard()
                     }
 
-                    if isVisitor, let mode = joinMode {
+                    // A league's own signup site beats in-app joining: that's
+                    // where organizers already collect registrations.
+                    if isVisitor, let url = currentLeague.signupUrl.flatMap(URL.init(string:)) {
+                        SignupCard(url: url)
+                    } else if isVisitor, let mode = joinMode {
                         JoinCTA(mode: mode, hasPendingRequest: hasPendingRequest) {
                             isShowingJoinTeam = true
                         }
@@ -394,7 +393,8 @@ struct LeagueDetailView: View {
             currentLeague = try await leagueService.updateLeague(
                 id: league.id, name: trimmed, isPublic: draft.isPublic, format: draft.format,
                 joinPolicy: draft.joinPolicy, allowPlayerTeams: draft.allowPlayerTeams,
-                maxTeams: draft.maxTeams, maxRosterSize: draft.maxRosterSize
+                maxTeams: draft.maxTeams, maxRosterSize: draft.maxRosterSize,
+                details: .init(venue: draft.venue, gameNight: draft.gameNight, signupUrl: draft.signupUrl)
             )
             await onChange?()
         } catch {
@@ -511,6 +511,26 @@ private struct LeagueHero: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.6)
+                if league.locationLine != nil || league.gameNight != nil {
+                    Button {
+                        if let venue = league.venue { openInMaps(venue) }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if let line = league.locationLine {
+                                Image(systemName: "mappin.and.ellipse")
+                                Text(line).lineLimit(1)
+                            }
+                            if let night = league.gameNight {
+                                if league.locationLine != nil { Text("·") }
+                                Text(night).lineLimit(1)
+                            }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(league.venue == nil)
+                }
                 HStack(spacing: 22) {
                     HeroStat(value: teamCount, label: "TEAMS")
                     HeroStat(value: gameCount, label: "GAMES")
@@ -717,33 +737,39 @@ private struct StatKeeperCard: View {
     }
 }
 
-private struct JoinCodeCard: View {
-    let league: League
+/// Owner, empty league: point them at the import — the main way players get in.
+private struct GetPlayersCard: View {
+    let onImport: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeaderText("Join code")
-            HStack {
-                Text(league.joinCode)
-                    .font(.display(34))
-                    .kerning(4)
-                    .foregroundStyle(Brand.orange)
-                Spacer()
-                ShareLink(item: AppConfig.joinURL(code: league.joinCode),
-                          message: Text("Join my Boxscore league \"\(league.name)\"! Tap the link, or enter code \(league.joinCode) in the app.")) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(Brand.orange, in: Capsule())
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeaderText("Get your players in")
+            Text("Import your rosters with each player's email. When they sign up with that email, they land on their team automatically.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            Button(action: onImport) {
+                Label("Import Rosters", systemImage: "square.and.arrow.down")
             }
-            Text("Share this once — anyone with the code can pick a team and add themselves.")
+            .buttonStyle(BrandPrimaryButtonStyle())
+        }
+        .brandCard(padding: 16)
+    }
+}
+
+/// Visitor, league has its own registration site.
+private struct SignupCard: View {
+    let url: URL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Link(destination: url) {
+                Label("Sign up on the league's website", systemImage: "arrow.up.right.square")
+            }
+            .buttonStyle(BrandPrimaryButtonStyle())
+            Text("Register there with your email. Once the organizer adds you, you'll land on your team here automatically.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .brandCard(padding: 16)
     }
 }
 
@@ -814,6 +840,9 @@ private struct EditLeagueSheet: View {
         var allowPlayerTeams: Bool
         var maxTeams: Int?
         var maxRosterSize: Int?
+        var venue: Venue?
+        var gameNight: String
+        var signupUrl: String
     }
 
     let league: League
@@ -829,6 +858,9 @@ private struct EditLeagueSheet: View {
     @State private var maxTeams: Int
     @State private var limitRoster: Bool
     @State private var maxRoster: Int
+    @State private var venue: Venue?
+    @State private var gameNight: String
+    @State private var signupUrl: String
 
     init(league: League, onSave: @escaping (Draft) async -> Void) {
         self.league = league
@@ -842,6 +874,9 @@ private struct EditLeagueSheet: View {
         _maxTeams = State(initialValue: league.maxTeams ?? 8)
         _limitRoster = State(initialValue: league.maxRosterSize != nil)
         _maxRoster = State(initialValue: league.maxRosterSize ?? 12)
+        _venue = State(initialValue: league.venue)
+        _gameNight = State(initialValue: league.gameNight ?? "")
+        _signupUrl = State(initialValue: league.signupUrl ?? "")
     }
 
     var body: some View {
@@ -849,6 +884,22 @@ private struct EditLeagueSheet: View {
             Form {
                 Section("Name") {
                     TextField("League name", text: $name)
+                }
+                Section("Where & when") {
+                    VenuePickerField(venue: $venue)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                        .listRowBackground(Color.clear)
+                    TextField("Game night (e.g. Tuesdays, 7–10pm)", text: $gameNight)
+                }
+                Section {
+                    TextField("tuesdayhoops.com/register", text: $signupUrl)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("League signup website")
+                } footer: {
+                    Text("Players who find your league in Boxscore get a button to sign up here.")
                 }
                 Section("Format") {
                     Picker("Format", selection: $format) {
@@ -865,7 +916,7 @@ private struct EditLeagueSheet: View {
                         }
                     }
                 } footer: {
-                    Text("Public leagues appear in search. Private leagues are join-by-code only.")
+                    Text("Public leagues show up in search and Near You. Private leagues fill from your roster import.")
                 }
                 Section("Teams") {
                     Toggle("Players can create teams", isOn: $allowPlayerTeams)
@@ -889,7 +940,8 @@ private struct EditLeagueSheet: View {
                             name: name, isPublic: isPublic, format: format, joinPolicy: joinPolicy,
                             allowPlayerTeams: allowPlayerTeams,
                             maxTeams: limitTeams ? maxTeams : nil,
-                            maxRosterSize: limitRoster ? maxRoster : nil
+                            maxRosterSize: limitRoster ? maxRoster : nil,
+                            venue: venue, gameNight: gameNight, signupUrl: signupUrl
                         )
                         Task { await onSave(draft); dismiss() }
                     }

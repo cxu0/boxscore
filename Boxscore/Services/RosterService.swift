@@ -89,21 +89,6 @@ final class RosterService: ObservableObject {
         try await client.from("roster_spots").delete().eq("id", value: id).execute()
     }
 
-    /// Self-serve join via the league's one shareable code — the signed-in
-    /// player adds themselves directly to a roster spot, no organizer
-    /// involvement or approval needed.
-    func joinLeagueSelf(joinCode: String, teamId: UUID, displayName: String) async throws -> RosterSpot {
-        try await client
-            .rpc("join_league_self", params: [
-                "p_join_code": joinCode,
-                "p_team_id": teamId.uuidString,
-                "p_display_name": displayName
-            ])
-            .single()
-            .execute()
-            .value
-    }
-
     /// Creates a brand-new team in the league and joins it in one step.
     func createTeamAndJoin(leagueId: UUID, teamName: String, displayName: String) async throws -> RosterSpot {
         try await client

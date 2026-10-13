@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct LeaguesTabView: View {
     let profile: Profile?
@@ -8,17 +9,25 @@ struct LeaguesTabView: View {
     @State private var myLeagues: [MyLeague] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var isShowingJoin = false
+    @State private var isShowingStaffCode = false
     @State private var isShowingSignIn = false
     @State private var openLeague: League?
-    @State private var openViaCode: String?
     @State private var searchText = ""
     @State private var discovered: [League] = []
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
-    // True while the guest opened the sign-in sheet specifically to join, so we
-    // can bounce them straight into the join flow once they're signed in.
-    @State private var joinAfterSignIn = false
+    // True while the guest opened the sign-in sheet to enter a stat-keeper
+    // code, so we can bounce them straight back to it once they're signed in.
+    @State private var staffCodeAfterSignIn = false
+    @StateObject private var location = LocationProvider()
+    @State private var nearby: [NearbyLeague] = []
+    @State private var hasLoadedNearby = false
+
+    struct NearbyLeague: Identifiable, Equatable {
+        let league: League
+        let miles: Double
+        var id: UUID { league.id }
+    }
 
     private var trimmedQuery: String { searchText.trimmingCharacters(in: .whitespaces) }
 
@@ -33,23 +42,18 @@ struct LeaguesTabView: View {
         return discovered.filter { !mine.contains($0.id) }
     }
 
+    private var nearbyResults: [NearbyLeague] {
+        let mine = Set(myLeagues.map(\.id))
+        return nearby.filter { !mine.contains($0.id) }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("LEAGUES")
-                            .font(.display(38))
-                        Spacer()
-                        Button {
-                            startJoin()
-                        } label: {
-                            Label("Join", systemImage: "person.badge.plus")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Brand.orange)
-                        }
-                    }
-                    .padding(.top, 8)
+                    Text("LEAGUES")
+                        .font(.display(38))
+                        .padding(.top, 8)
 
                     if profile == nil {
                         guestState
@@ -62,42 +66,52 @@ struct LeaguesTabView: View {
                     if let errorMessage {
                         ErrorBanner(message: errorMessage)
                     }
+
+                    Button("Have a stat-keeper code?") { startStaffCode() }
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Brand.orange)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                 }
                 .padding(.horizontal, 18)
+                .padding(.bottom, 24)
             }
             .refreshable { if profile != nil { await loadLeagues() } }
             .toolbar(.hidden, for: .navigationBar)
             .brandBackground()
             .navigationDestination(item: $openLeague) { league in
-                LeagueDetailView(league: league, viaJoinCode: openViaCode, onChange: { await loadLeagues() })
+                LeagueDetailView(league: league, onChange: { await loadLeagues() })
             }
-            .sheet(isPresented: $isShowingJoin) {
-                JoinCodeSheet { league, code in
-                    openViaCode = code
+            .sheet(isPresented: $isShowingStaffCode) {
+                StaffCodeSheet { league in
                     openLeague = league
-                    // A stat-keeper code adds the league to My Leagues right away.
-                    if code == nil { Task { await loadLeagues() } }
+                    // The league joins My Leagues (as STAT KEEPER) right away.
+                    Task { await loadLeagues() }
                 }
             }
             .sheet(isPresented: $isShowingSignIn) {
                 NavigationStack {
-                    SignInPromptView(message: "Sign in to join a league and start tracking your stats.")
+                    SignInPromptView(message: "Sign in to find leagues near you and start your career stats.")
                 }
             }
             // When the guest signs in, `profile` flips non-nil — close the
-            // sign-in sheet and drop them into the join flow they were after.
+            // sign-in sheet and drop them back into what they were doing.
             .onChange(of: profile) { _, newProfile in
                 guard newProfile != nil else { return }
                 if isShowingSignIn {
                     isShowingSignIn = false
-                    if joinAfterSignIn {
-                        joinAfterSignIn = false
+                    if staffCodeAfterSignIn {
+                        staffCodeAfterSignIn = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            isShowingJoin = true
+                            isShowingStaffCode = true
                         }
                     }
                 }
                 Task { await loadLeagues() }
+            }
+            .onChange(of: location.location) { _, newLocation in
+                guard newLocation != nil else { return }
+                Task { await loadNearby() }
             }
             .onChange(of: searchText) { _, _ in scheduleSearch() }
             .onChange(of: router.pending) { _, _ in resolvePending() }
@@ -105,6 +119,9 @@ struct LeaguesTabView: View {
             .task {
                 if profile != nil { await loadLeagues() }
                 resolvePending()
+                // Only re-ask for a fix if they already said yes; the first
+                // ask happens when they tap "Use my location".
+                if location.isAuthorized { location.request() }
             }
         }
     }
@@ -117,18 +134,14 @@ struct LeaguesTabView: View {
         guard profile != nil else { isShowingSignIn = true; return }
         Task {
             switch dest {
-            case .joinCode(let code):
-                if let league = try? await leagueService.findLeague(byJoinCode: code) {
-                    openViaCode = code; openLeague = league
-                }
             case .staffCode(let code):
                 if let league = try? await leagueService.redeemStaffCode(code) {
-                    openViaCode = nil; openLeague = league
+                    openLeague = league
                     await loadLeagues()
                 }
             case .publicLeague(let id):
                 if let league = try? await leagueService.fetchLeague(id: id) {
-                    openViaCode = nil; openLeague = league
+                    openLeague = league
                 }
             }
             router.pending = nil
@@ -160,7 +173,7 @@ struct LeaguesTabView: View {
 
     @ViewBuilder
     private var signedInContent: some View {
-        SearchField(text: $searchText, placeholder: "Search leagues...")
+        SearchField(text: $searchText, placeholder: "Search leagues, cities, gyms...")
 
         // My leagues (or a prompt when there are none and no active search).
         if !filteredLeagues.isEmpty {
@@ -177,13 +190,17 @@ struct LeaguesTabView: View {
             emptyState
         }
 
+        if trimmedQuery.isEmpty {
+            nearYouSection
+        }
+
         // Discover public leagues — browse anyone's league read-only, no code needed.
         if !trimmedQuery.isEmpty {
             SectionHeaderText("Discover public leagues")
             if isSearching {
                 HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 12)
             } else if discoveredResults.isEmpty {
-                Text("No public leagues match \u{201c}\(trimmedQuery)\u{201d}. Private leagues stay code-only.")
+                Text("No public leagues match \u{201c}\(trimmedQuery)\u{201d}.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,18 +218,66 @@ struct LeaguesTabView: View {
         }
     }
 
-    // Guests can browse the tab; joining is the identity moment.
+    @ViewBuilder
+    private var nearYouSection: some View {
+        SectionHeaderText("Near you")
+        if location.isAuthorized {
+            if !hasLoadedNearby {
+                HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 12)
+            } else if nearbyResults.isEmpty {
+                Text("No public leagues within 40 miles yet. Try searching a city or gym.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .brandCard()
+            } else {
+                ForEach(nearbyResults) { item in
+                    NavigationLink {
+                        LeagueDetailView(league: item.league)
+                    } label: {
+                        DiscoverCard(league: item.league, miles: item.miles)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if location.isDenied {
+            Text("Location is off for Boxscore. Search a city or gym above, or turn it on in Settings.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .brandCard()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Find leagues near you")
+                    .font(.system(size: 16, weight: .bold))
+                Text("See public leagues at gyms around you — standings, stat leaders, and how to sign up.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                Button {
+                    location.request()
+                } label: {
+                    Label("Use My Location", systemImage: "location.fill")
+                }
+                .buttonStyle(BrandPrimaryButtonStyle())
+                .padding(.top, 6)
+            }
+            .brandCard(padding: 18)
+        }
+    }
+
+    // Guests can browse the tab; signing in unlocks leagues (RLS is
+    // authenticated-only).
     private var guestState: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Find your league")
                 .font(.system(size: 16, weight: .bold))
-            Text("Got a join code from your organizer? Join a league to add yourself to a team and start your career stats.")
+            Text("Sign in to see leagues near you. Already in a league? Sign up with the email you registered with and you'll land on your team automatically.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Button {
-                startJoin()
+                isShowingSignIn = true
             } label: {
-                Text("Join a League")
+                Text("Sign In")
             }
             .buttonStyle(BrandPrimaryButtonStyle())
             .padding(.top, 6)
@@ -224,27 +289,29 @@ struct LeaguesTabView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No leagues yet")
                 .font(.system(size: 16, weight: .bold))
-            Text("Create a league from the Create tab, or join one with a code from your organizer.")
+            Text("Playing in a league? Once your organizer imports the roster with your email, it shows up here. Running one? Create it from the Create tab.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            Button {
-                startJoin()
-            } label: {
-                Text("Join a League")
-            }
-            .buttonStyle(BrandPrimaryButtonStyle())
-            .padding(.top, 6)
         }
         .brandCard(padding: 18)
     }
 
-    private func startJoin() {
+    private func startStaffCode() {
         if profile == nil {
-            joinAfterSignIn = true
+            staffCodeAfterSignIn = true
             isShowingSignIn = true
         } else {
-            isShowingJoin = true
+            isShowingStaffCode = true
         }
+    }
+
+    private func loadNearby() async {
+        guard profile != nil, let here = location.location else { return }
+        let results = (try? await leagueService.fetchNearbyPublicLeagues(
+            latitude: here.coordinate.latitude, longitude: here.coordinate.longitude
+        )) ?? []
+        nearby = results.map { NearbyLeague(league: $0.league, miles: $0.miles) }
+        hasLoadedNearby = true
     }
 
     private func loadLeagues() async {
@@ -299,6 +366,7 @@ private struct LeagueCard: View {
 /// rather than showing a personal relationship.
 private struct DiscoverCard: View {
     let league: League
+    var miles: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -306,7 +374,7 @@ private struct DiscoverCard: View {
                 Image(systemName: "globe")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
-                Text("PUBLIC")
+                Text(miles.map { String(format: "PUBLIC · %.1f MI", $0) } ?? "PUBLIC")
                     .font(.system(size: 10, weight: .black).width(.condensed))
                     .kerning(1.2)
                     .foregroundStyle(.secondary)
@@ -321,6 +389,13 @@ private struct DiscoverCard: View {
             Text(league.name)
                 .font(.display(24))
                 .foregroundStyle(.primary)
+            let details = [league.locationLine, league.gameNight].compactMap { $0 }
+            if !details.isEmpty {
+                Text(details.joined(separator: " · "))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         .brandCard()
     }

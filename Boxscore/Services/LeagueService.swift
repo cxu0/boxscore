@@ -59,25 +59,54 @@ final class LeagueService: ObservableObject {
     func searchPublicLeagues(query: String) async throws -> [League] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return [] }
+        // PostgREST `or` syntax: commas/parens separate filters, so strip them
+        // from user input; `*` is the wildcard inside or().
+        let safe = trimmed.filter { !",()*".contains($0) }
+        let pattern = "*\(safe)*"
         return try await client
             .from("leagues")
             .select()
             .eq("is_public", value: true)
-            .ilike("name", pattern: "%\(trimmed)%")
+            .or("name.ilike.\(pattern),city.ilike.\(pattern),venue_name.ilike.\(pattern)")
             .order("name")
             .limit(25)
             .execute()
             .value
     }
 
-    func findLeague(byJoinCode code: String) async throws -> League {
-        try await client
+    /// Public leagues within roughly `radiusMiles`, nearest first. Filters by
+    /// a lat/lng box in the database, then sorts by straight-line distance.
+    func fetchNearbyPublicLeagues(latitude: Double, longitude: Double, radiusMiles: Double = 40) async throws -> [(league: League, miles: Double)] {
+        let latDelta = radiusMiles / 69.0
+        let lngDelta = radiusMiles / max(69.0 * cos(latitude * .pi / 180), 1)
+        let leagues: [League] = try await client
             .from("leagues")
             .select()
-            .eq("join_code", value: code)
-            .single()
+            .eq("is_public", value: true)
+            .gte("latitude", value: latitude - latDelta)
+            .lte("latitude", value: latitude + latDelta)
+            .gte("longitude", value: longitude - lngDelta)
+            .lte("longitude", value: longitude + lngDelta)
+            .limit(100)
             .execute()
             .value
+        return leagues
+            .compactMap { league in
+                guard let lat = league.latitude, let lng = league.longitude else { return nil }
+                let miles = Self.miles(fromLat: latitude, lng: longitude, toLat: lat, lng: lng)
+                return miles <= radiusMiles ? (league, miles) : nil
+            }
+            .sorted { $0.miles < $1.miles }
+    }
+
+    /// Great-circle distance in miles (haversine).
+    static func miles(fromLat lat1: Double, lng lng1: Double, toLat lat2: Double, lng lng2: Double) -> Double {
+        let r = 3958.8
+        let dLat = (lat2 - lat1) * .pi / 180
+        let dLng = (lng2 - lng1) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * sin(dLng / 2) * sin(dLng / 2)
+        return 2 * r * asin(min(1, sqrt(a)))
     }
 
     /// Creates the league and its first season in one call — a fresh league
@@ -86,6 +115,50 @@ final class LeagueService: ObservableObject {
     /// Creates the league, its first season, and any teams the organizer added
     /// during setup — one call so a brand-new league is ready to share.
     /// Edits a league's settings in one update.
+    /// Where/when a league plays — shared by create and edit.
+    struct LeagueDetails: Encodable {
+        var venueName: String?
+        var venueAddress: String?
+        var city: String?
+        var latitude: Double?
+        var longitude: Double?
+        var gameNight: String?
+        var signupUrl: String?
+
+        init(venue: Venue?, gameNight: String, signupUrl: String) {
+            venueName = venue?.name
+            venueAddress = venue?.address
+            city = venue?.city
+            latitude = venue?.latitude
+            longitude = venue?.longitude
+            let night = gameNight.trimmingCharacters(in: .whitespaces)
+            self.gameNight = night.isEmpty ? nil : night
+            self.signupUrl = Self.normalizedURL(signupUrl)
+        }
+
+        /// "leaguesite.com/register" → "https://leaguesite.com/register"; blank → nil.
+        static func normalizedURL(_ raw: String) -> String? {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed.lowercased().hasPrefix("http") ? trimmed : "https://\(trimmed)"
+        }
+
+        // Encode nils as JSON null so clearing a field actually clears it.
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(venueName, forKey: .venueName)
+            try c.encode(venueAddress, forKey: .venueAddress)
+            try c.encode(city, forKey: .city)
+            try c.encode(latitude, forKey: .latitude)
+            try c.encode(longitude, forKey: .longitude)
+            try c.encode(gameNight, forKey: .gameNight)
+            try c.encode(signupUrl, forKey: .signupUrl)
+        }
+        enum CodingKeys: String, CodingKey {
+            case venueName, venueAddress, city, latitude, longitude, gameNight, signupUrl
+        }
+    }
+
     func updateLeague(
         id: UUID,
         name: String,
@@ -94,23 +167,40 @@ final class LeagueService: ObservableObject {
         joinPolicy: JoinPolicy,
         allowPlayerTeams: Bool,
         maxTeams: Int?,
-        maxRosterSize: Int?
+        maxRosterSize: Int?,
+        details: LeagueDetails
     ) async throws -> League {
         struct Update: Encodable {
             let name: String
-            let is_public: Bool
+            let isPublic: Bool
             let format: String
-            let join_policy: String
-            let allow_player_teams: Bool
-            let max_teams: Int?
-            let max_roster_size: Int?
+            let joinPolicy: String
+            let allowPlayerTeams: Bool
+            let maxTeams: Int?
+            let maxRosterSize: Int?
+            let details: LeagueDetails
+
+            enum CodingKeys: String, CodingKey {
+                case name, isPublic, format, joinPolicy, allowPlayerTeams, maxTeams, maxRosterSize
+            }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(name, forKey: .name)
+                try c.encode(isPublic, forKey: .isPublic)
+                try c.encode(format, forKey: .format)
+                try c.encode(joinPolicy, forKey: .joinPolicy)
+                try c.encode(allowPlayerTeams, forKey: .allowPlayerTeams)
+                try c.encode(maxTeams, forKey: .maxTeams)
+                try c.encode(maxRosterSize, forKey: .maxRosterSize)
+                try details.encode(to: encoder)
+            }
         }
         return try await client
             .from("leagues")
             .update(Update(
-                name: name, is_public: isPublic, format: format.rawValue,
-                join_policy: joinPolicy.rawValue, allow_player_teams: allowPlayerTeams,
-                max_teams: maxTeams, max_roster_size: maxRosterSize
+                name: name, isPublic: isPublic, format: format.rawValue,
+                joinPolicy: joinPolicy.rawValue, allowPlayerTeams: allowPlayerTeams,
+                maxTeams: maxTeams, maxRosterSize: maxRosterSize, details: details
             ))
             .eq("id", value: id)
             .select()
@@ -197,17 +287,29 @@ final class LeagueService: ObservableObject {
         seasonName: String? = nil,
         startDate: Date? = nil,
         endDate: Date? = nil,
-        teamNames: [String] = []
+        teamNames: [String] = [],
+        details: LeagueDetails
     ) async throws -> League {
         struct NewLeague: Encodable {
             let name: String
-            let owner_id: String
-            let is_public: Bool
+            let ownerId: UUID
+            let isPublic: Bool
             let format: String
+            let details: LeagueDetails
+
+            enum CodingKeys: String, CodingKey { case name, ownerId, isPublic, format }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(name, forKey: .name)
+                try c.encode(ownerId, forKey: .ownerId)
+                try c.encode(isPublic, forKey: .isPublic)
+                try c.encode(format, forKey: .format)
+                try details.encode(to: encoder)
+            }
         }
         let league: League = try await client
             .from("leagues")
-            .insert(NewLeague(name: name, owner_id: ownerId.uuidString, is_public: isPublic, format: format.rawValue))
+            .insert(NewLeague(name: name, ownerId: ownerId, isPublic: isPublic, format: format.rawValue, details: details))
             .select()
             .single()
             .execute()

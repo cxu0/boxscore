@@ -40,6 +40,34 @@ struct League: Codable, Identifiable, Hashable {
     var maxRosterSize: Int?
     var joinPolicy: JoinPolicy
     var createdAt: Date?
+    // Where/when they play, and the league's own signup page (0008).
+    var venueName: String?
+    var venueAddress: String?
+    var city: String?
+    var latitude: Double?
+    var longitude: Double?
+    var gameNight: String?
+    var signupUrl: String?
+
+    var venue: Venue? {
+        guard let venueName, let latitude, let longitude else { return nil }
+        return Venue(name: venueName, address: venueAddress, city: city, latitude: latitude, longitude: longitude)
+    }
+
+    /// "Downtown YMCA · Austin" — whatever location info exists.
+    var locationLine: String? {
+        let parts = [venueName, city].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// A gym/venue picked from Apple Maps.
+struct Venue: Equatable, Hashable {
+    var name: String
+    var address: String?
+    var city: String?
+    var latitude: Double
+    var longitude: Double
 }
 
 /// A stat keeper on a league, with their name embedded via PostgREST select.
